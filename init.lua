@@ -105,6 +105,8 @@ vim.g.maplocalleader = "\\"
 require('lualine').setup({
     sections = {
         lualine_b = {'branch', 'diagnostics'},
+        lualine_x = {'filetype'},
+        lualine_y = {'lsp_status'},
     }
 })
 
