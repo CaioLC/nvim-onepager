@@ -5,38 +5,38 @@
 -- SETUP LAZY.NVIM
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not (vim.uv or vim.loop).fs_stat(lazypath) then
-	local lazyrepo = "https://github.com/folke/lazy.nvim.git"
-	local out = vim.fn.system({ "git", "clone", "--filter=blob:none", "--branch=stable", lazyrepo, lazypath })
-	if vim.v.shell_error ~= 0 then
-		vim.api.nvim_echo({
-			{ "Failed to clone lazy.nvim:\n", "ErrorMsg" },
-			{ out,                            "WarningMsg" },
-			{ "\nPress any key to exit..." },
-		}, true, {})
-		vim.fn.getchar()
-		os.exit(1)
-	end
+  local lazyrepo = "https://github.com/folke/lazy.nvim.git"
+  local out = vim.fn.system({ "git", "clone", "--filter=blob:none", "--branch=stable", lazyrepo, lazypath })
+  if vim.v.shell_error ~= 0 then
+    vim.api.nvim_echo({
+      { "Failed to clone lazy.nvim:\n", "ErrorMsg" },
+      { out,                            "WarningMsg" },
+      { "\nPress any key to exit..." },
+    }, true, {})
+    vim.fn.getchar()
+    os.exit(1)
+  end
 end
 vim.opt.rtp:prepend(lazypath)
 
 -- PLUGINS
 require("lazy").setup({
-	spec = {
-		{
-			"folke/tokyonight.nvim",
-			lazy = false,
-			priority = 1000,
-			config = function()
-				vim.cmd([[colorscheme tokyonight]])
-			end,
-		},
+  spec = {
+    {
+      "folke/tokyonight.nvim",
+      lazy = false,
+      priority = 1000,
+      config = function()
+        vim.cmd([[colorscheme tokyonight]])
+      end,
+    },
 
-		{
-			"nvim-treesitter/nvim-treesitter",
-			branch = "main",
-			lazy = false,
-			build = ":TSUpdate",
-		},
+    {
+      "nvim-treesitter/nvim-treesitter",
+      branch = "main",
+      lazy = false,
+      build = ":TSUpdate",
+    },
 
     {
       "hrsh7th/nvim-cmp",
@@ -95,7 +95,7 @@ require("lazy").setup({
         {
           "<leader>?",
           function()
-            require("which-key").show({global = false})
+            require("which-key").show({ global = false })
           end,
           desc = "buffer Local Keymaps (which-key)",
         }
@@ -105,10 +105,10 @@ require("lazy").setup({
     {
       'Vigemus/iron.nvim'
     }
-	},
-	-- configure any other settings here. see documentation for detailes.
-	-- automatically check for plugin updates
-	checker = { enabled = true },
+  },
+  -- configure any other settings here. see documentation for detailes.
+  -- automatically check for plugin updates
+  checker = { enabled = true },
 })
 
 -- CONFIGS
@@ -122,24 +122,24 @@ vim.o.termguicolors = true
 vim.g.mapleader = " "
 vim.g.maplocalleader = "\\"
 require('lualine').setup({
-    sections = {
-        lualine_b = {'branch', 'diagnostics'},
-        lualine_x = {'filetype'},
-        lualine_y = {'lsp_status'},
-    }
+  sections = {
+    lualine_b = { 'branch', 'diagnostics' },
+    lualine_x = { 'filetype' },
+    lualine_y = { 'lsp_status' },
+  }
 })
 
 -- KEYMAPS | Keybindings
 vim.keymap.set('n', '<leader>rc', ':e $MYVIMRC<CR>', { desc = 'Open [R]C config' }) -- Open init.lua
-vim.keymap.set('n', '<leader>L', ':Lazy<CR>', { desc = 'Lazy.nvim UI' }) -- Open Lazy
+vim.keymap.set('n', '<leader>L', ':Lazy<CR>', { desc = 'Lazy.nvim UI' })            -- Open Lazy
 vim.keymap.set('n', '<Esc>', ':nohlsearch<CR>', { desc = 'Clear search highlight' })
 vim.keymap.set('i', '<C-Space>', '<C-x><C-o>', { noremap = true, silent = true })
-vim.keymap.set({'n', 'v'}, '<Space>', '<Nop>') -- space with no following letter has no effect on normal and visual mode
+vim.keymap.set({ 'n', 'v' }, '<Space>', '<Nop>') -- space with no following letter has no effect on normal and visual mode
 -- window
-vim.keymap.set('t', '<Esc>', '<C-\\><C-N>', { desc = 'Normal Mode in terminal'})
+vim.keymap.set('t', '<Esc>', '<C-\\><C-N>', { desc = 'Normal Mode in terminal' })
 -- terminal
 vim.keymap.set('n', '<leader>wt', "<C-w>s<C-w>j:terminal<CR>") -- minimize terminal split
-vim.keymap.set('t', '<Esc>', '<C-\\><C-N>', { desc = 'Normal Mode in terminal'})
+vim.keymap.set('t', '<Esc>', '<C-\\><C-N>', { desc = 'Normal Mode in terminal' })
 vim.keymap.set('t', '<C-w>', "<C-\\><C-n><C-w>")
 vim.keymap.set('n', '<C-g>', "3<C-w>_") -- minimize terminal split
 -- telescope
@@ -165,13 +165,13 @@ vim.lsp.config['luals'] = {
 }
 
 vim.lsp.config['pyrefly'] = {
-  cmd = { 'pyrefly' , 'lsp' },
+  cmd = { 'pyrefly', 'lsp' },
   filetypes = { 'python' },
   root_markers = { '.git', 'pyproject.toml', 'setup.py', 'requirements.txt' },
   settings = {
   },
   on_exit = function(code, _, _)
-      vim.notify("Closing Pyrefly LSP exited with code: " .. code, vim.log.levels.INFO)
+    vim.notify("Closing Pyrefly LSP exited with code: " .. code, vim.log.levels.INFO)
   end,
 }
 
@@ -186,42 +186,110 @@ vim.lsp.config['zls'] = {
   }
 }
 
-vim.lsp.enable({'luals', 'pyrefly', 'zls'})
+vim.lsp.config['wgsl-analyzer'] = {
+  cmd = { 'wgsl-analyzer' },
+  filetypes = { 'wgsl' },
+}
+vim.lsp.enable({ 'luals', 'pyrefly', 'zls', 'wgsl-analyzer' })
 -- activate completion
 -- Use CTRL-Y to select an item. |complete_CTRL-Y|
 vim.opt.completeopt = 'menuone,noselect,popup'
 vim.api.nvim_create_autocmd('LspAttach', {
-    group = vim.api.nvim_create_augroup('UserLspConfig', {}),
-    callback = function(args)
-        local bufnr = args.buf
-        vim.bo[bufnr].omnifunc = 'v:lua.vim.lsp.omnifunc'
+  group = vim.api.nvim_create_augroup('UserLspConfig', {}),
+  callback = function(args)
+    local bufnr = args.buf
+    vim.bo[bufnr].omnifunc = 'v:lua.vim.lsp.omnifunc'
 
-        -- Help with signature help
-        vim.keymap.set('i', '<C-h>', vim.lsp.buf.signature_help, {buffer = bufnr})
-        vim.keymap.set('n', 'K', vim.lsp.buf.hover, { buffer = bufnr, desc = "Hover documentation" })
-        vim.keymap.set('n', 'gd', vim.lsp.buf.definition, { buffer = bufnr, desc = "Go to definition" })
-        vim.keymap.set('n', 'gr', vim.lsp.buf.references, { buffer = bufnr, desc = "Find references" })
-        vim.keymap.set('n', '<leader>ca', vim.lsp.buf.code_action, { buffer = bufnr, desc = "Code action" })
-        vim.keymap.set('n', 'rn', vim.lsp.buf.rename, { buffer = bufnr, desc = "Rename" })
-    end,
+    -- Help with signature help
+    vim.keymap.set('i', '<C-h>', vim.lsp.buf.signature_help, { buffer = bufnr })
+    vim.keymap.set('n', 'K', vim.lsp.buf.hover, { buffer = bufnr, desc = "Hover documentation" })
+    vim.keymap.set('n', 'gd', vim.lsp.buf.definition, { buffer = bufnr, desc = "Go to definition" })
+    vim.keymap.set('n', 'gr', vim.lsp.buf.references, { buffer = bufnr, desc = "Find references" })
+    vim.keymap.set('n', '<leader>ca', vim.lsp.buf.code_action, { buffer = bufnr, desc = "Code action" })
+    vim.keymap.set('n', 'rn', vim.lsp.buf.rename, { buffer = bufnr, desc = "Rename" })
+  end,
+})
+
+-- Add format on save
+vim.api.nvim_create_autocmd('LspAttach', {
+  group = vim.api.nvim_create_augroup('LspFormatOnSave', {}),
+  callback = function(args)
+    local client = vim.lsp.get_client_by_id(args.data.client_id)
+    local bufnr = args.buf
+
+    if client and client.supports_method("textDocument/formatting", bufnr) then
+      vim.api.nvim_create_autocmd("BufWritePre", {
+        buffer = bufnr,
+        callback = function()
+          vim.lsp.buf.format { async = false, id = args.data.client_id }
+        end,
+      })
+    end
+  end
+})
+
+-- Add after your LSP setup
+-- Refresh LSP when saving files
+vim.api.nvim_create_autocmd('BufWritePost', {
+  group = vim.api.nvim_create_augroup('LspRefresh', {}),
+  callback = function(args)
+    local clients = vim.lsp.get_clients({ bufnr = args.buf })
+    for _, client in ipairs(clients) do
+      -- Notify LSP about file changes
+      if client.supports_method("textDocument/didSave") then
+        vim.lsp.buf_notify(args.buf, "textDocument/didSave", { textDocument = { uri = vim.uri_from_bufnr(args.buf) } })
+      end
+    end
+  end,
+})
+
+-- Force LSP to re-analyze the entire workspace occasionally
+vim.api.nvim_create_autocmd({ 'BufEnter', 'FocusGained' }, {
+  group = vim.api.nvim_create_augroup('LspWorkspaceRefresh', {}),
+  callback = function()
+    -- Only trigger every 30 seconds to avoid performance issues
+    local last_refresh = vim.w.lsp_last_refresh or 0
+    if os.time() - last_refresh > 10 then
+      vim.w.lsp_last_refresh = os.time()
+      vim.schedule(function()
+        for _, client in ipairs(vim.lsp.get_clients()) do
+          if client.supports_method("workspace/didChangeWatchedFiles") then
+            -- This triggers workspace re-scan
+            client.notify("workspace/didChangeConfiguration", { settings = client.config.settings })
+          end
+        end
+      end)
+    end
+  end,
 })
 
 -- DIAGNOSTICS
 vim.diagnostic.config({
-    virtual_text = true,
-    severity_sort = {
-        true,
-        reverse = true
-    }
+  virtual_text = true,
+  severity_sort = {
+    true,
+    reverse = true
+  }
 })
 
 -- SETUP NVIM-TREESITTER
-require 'nvim-treesitter'.install { "c", "lua", "markdown", "markdown_inline", "python", "zig", "superhtml", "wgsl", "zig" }
+require('nvim-treesitter').install { "c", "lua", "markdown", "markdown_inline", "python", "zig", "superhtml", "wgsl", "zig" }
+
+vim.filetype.add({ extension = { wgsl = "wgsl" } })
+-- vim.treesitter.language.register('wgsl', {'wgsl'})
+local parser_config = require("nvim-treesitter.parsers")
+parser_config.wgsl = {
+  install_info = {
+    url = "https://github.com/szebniok/tree-sitter-wgsl",
+    files = { "src/parser.c" }
+  }
+}
+
 vim.api.nvim_create_autocmd('FileType', {
-	pattern = { '<filetype>' },
-	callback = function() vim.treesitter.start() end,
-}) -- highlighting
-vim.wo.foldexpr = 'v:lua.vim.treesitter.foldexpr()' -- folds
+  pattern = { 'wgsl', 'zig', 'python' },
+  callback = function() vim.treesitter.start() end,
+})                                                                -- highlighting
+vim.wo.foldexpr = 'v:lua.vim.treesitter.foldexpr()'               -- folds
 vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()" -- indentation
 
 -- IRON REPL CONFIG
@@ -238,18 +306,18 @@ iron.setup {
       sh = {
         -- Can be a table or a function that
         -- returns a table (see below)
-        command = {"cmd"}
+        command = { "cmd" }
       },
       python = {
-        command = { "python" },  -- or { "ipython", "--no-autoindent" }
+        command = { "python" }, -- or { "ipython", "--no-autoindent" }
         format = common.bracketed_paste_python,
         block_dividers = { "# %%", "#%%" },
-        env = {PYTHON_BASIC_REPL = "1"} --this is needed for python3.13 and up.
+        env = { PYTHON_BASIC_REPL = "1" } --this is needed for python3.13 and up.
       }
     },
     -- set the file type of the newly created repl to ft
-    -- bufnr is the buffer id of the REPL and ft is the filetype of the 
-    -- language being used for the REPL. 
+    -- bufnr is the buffer id of the REPL and ft is the filetype of the
+    -- language being used for the REPL.
     repl_filetype = function(bufnr, ft)
       return ft
       -- or return a string name such as the following
@@ -261,15 +329,15 @@ iron.setup {
     -- See below for more information
     repl_open_cmd = view.split.vertical.rightbelow("%40"),
 
-    -- repl_open_cmd can also be an array-style table so that multiple 
+    -- repl_open_cmd can also be an array-style table so that multiple
     -- repl_open_commands can be given.
     -- When repl_open_cmd is given as a table, the first command given will
     -- be the command that `IronRepl` initially toggles.
     -- Moreover, when repl_open_cmd is a table, each key will automatically
-    -- be available as a keymap (see `keymaps` below) with the names 
+    -- be available as a keymap (see `keymaps` below) with the names
     -- toggle_repl_with_cmd_1, ..., toggle_repl_with_cmd_k
     -- For example,
-    -- 
+    --
     -- repl_open_cmd = {
     --   view.split.vertical.rightbelow("%40"), -- cmd_1: open a repl to the right
     --   view.split.rightbelow("%25")  -- cmd_2: open a repl below
