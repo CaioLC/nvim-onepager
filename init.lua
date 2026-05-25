@@ -1,6 +1,10 @@
 -- OS dependencies (setup manually)
 -- ripgrep -> winget install BurntSushi.ripgrep.MSVC
 -- fd -> winget install sharkdp.fd
+-- conda env 'nvim' -> pynvim, jupyter_client, ipykernel (for molten-nvim)
+
+-- PYTHON PROVIDER (must come before lazy setup so :UpdateRemotePlugins uses it)
+vim.g.python3_host_prog = 'C:/Users/c4ioc/.conda/envs/nvim/python.exe'
 
 -- SETUP LAZY.NVIM
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
@@ -90,7 +94,9 @@ require("lazy").setup({
     {
       'folke/which-key.nvim',
       event = "VeryLazy",
-      opts = {},
+      opts = {
+        preset = "helix",
+      },
       keys = {
         {
           "<leader>?",
@@ -103,7 +109,19 @@ require("lazy").setup({
     },
 
     {
-      'Vigemus/iron.nvim'
+      "benlubas/molten-nvim",
+      version = "^1.0.0",
+      build = ":UpdateRemotePlugins",
+      dependencies = { "willothy/wezterm.nvim" },
+      ft = { "python", "markdown" },
+      init = function()
+        vim.g.molten_image_provider = "wezterm"
+        vim.g.molten_output_win_max_height = 20
+        vim.g.molten_auto_open_output = false
+        vim.g.molten_wrap_output = true
+        vim.g.molten_virt_text_output = true
+        vim.g.molten_virt_lines_off_by_1 = true
+      end,
     }
   },
   -- configure any other settings here. see documentation for detailes.
@@ -133,15 +151,15 @@ require('lualine').setup({
 vim.keymap.set('n', '<leader>rc', ':e $MYVIMRC<CR>', { desc = 'Open [R]C config' }) -- Open init.lua
 vim.keymap.set('n', '<leader>L', ':Lazy<CR>', { desc = 'Lazy.nvim UI' })            -- Open Lazy
 vim.keymap.set('n', '<Esc>', ':nohlsearch<CR>', { desc = 'Clear search highlight' })
-vim.keymap.set('i', '<C-Space>', '<C-x><C-o>', { noremap = true, silent = true })
-vim.keymap.set({ 'n', 'v' }, '<Space>', '<Nop>') -- space with no following letter has no effect on normal and visual mode
--- window
-vim.keymap.set('t', '<Esc>', '<C-\\><C-N>', { desc = 'Normal Mode in terminal' })
+vim.keymap.set({ 'n', 'v' }, '<Space>', '<Nop>')                                    -- space with no following letter has no effect on normal and visual mode
 -- terminal
-vim.keymap.set('n', '<leader>wt', "<C-w>s<C-w>j:terminal<CR>") -- minimize terminal split
+vim.keymap.set('n', '<leader>wt', "<C-w>s<C-w>j:terminal<CR>", { desc = 'Open terminal in split below' })
 vim.keymap.set('t', '<Esc>', '<C-\\><C-N>', { desc = 'Normal Mode in terminal' })
 vim.keymap.set('t', '<C-w>', "<C-\\><C-n><C-w>")
-vim.keymap.set('n', '<C-g>', "3<C-w>_") -- minimize terminal split
+vim.keymap.set('n', '<C-g>', "3<C-w>_", { desc = 'Maximize current window' })
+-- folds
+vim.keymap.set('n', '<leader>zm', 'zM', { desc = 'Fold all functions/structs' })
+vim.keymap.set('n', '<leader>zr', 'zR', { desc = 'Unfold all' })
 -- telescope
 local t_builtin = require('telescope.builtin')
 vim.keymap.set('n', '<leader>ff', t_builtin.find_files, { desc = 'Telescope find files' })
@@ -217,7 +235,7 @@ vim.api.nvim_create_autocmd('LspAttach', {
     local client = vim.lsp.get_client_by_id(args.data.client_id)
     local bufnr = args.buf
 
-    if client and client.supports_method("textDocument/formatting", bufnr) then
+    if client and client:supports_method("textDocument/formatting", bufnr) then
       vim.api.nvim_create_autocmd("BufWritePre", {
         buffer = bufnr,
         callback = function()
@@ -226,41 +244,6 @@ vim.api.nvim_create_autocmd('LspAttach', {
       })
     end
   end
-})
-
--- Add after your LSP setup
--- Refresh LSP when saving files
-vim.api.nvim_create_autocmd('BufWritePost', {
-  group = vim.api.nvim_create_augroup('LspRefresh', {}),
-  callback = function(args)
-    local clients = vim.lsp.get_clients({ bufnr = args.buf })
-    for _, client in ipairs(clients) do
-      -- Notify LSP about file changes
-      if client.supports_method("textDocument/didSave") then
-        vim.lsp.buf_notify(args.buf, "textDocument/didSave", { textDocument = { uri = vim.uri_from_bufnr(args.buf) } })
-      end
-    end
-  end,
-})
-
--- Force LSP to re-analyze the entire workspace occasionally
-vim.api.nvim_create_autocmd({ 'BufEnter', 'FocusGained' }, {
-  group = vim.api.nvim_create_augroup('LspWorkspaceRefresh', {}),
-  callback = function()
-    -- Only trigger every 30 seconds to avoid performance issues
-    local last_refresh = vim.w.lsp_last_refresh or 0
-    if os.time() - last_refresh > 10 then
-      vim.w.lsp_last_refresh = os.time()
-      vim.schedule(function()
-        for _, client in ipairs(vim.lsp.get_clients()) do
-          if client.supports_method("workspace/didChangeWatchedFiles") then
-            -- This triggers workspace re-scan
-            client.notify("workspace/didChangeConfiguration", { settings = client.config.settings })
-          end
-        end
-      end)
-    end
-  end,
 })
 
 -- DIAGNOSTICS
@@ -273,111 +256,74 @@ vim.diagnostic.config({
 })
 
 -- SETUP NVIM-TREESITTER
-require('nvim-treesitter').install { "c", "lua", "markdown", "markdown_inline", "python", "zig", "superhtml", "wgsl", "zig" }
+require('nvim-treesitter').install { "c", "lua", "markdown", "markdown_inline", "python", "zig", "superhtml", "wgsl" }
 
 vim.filetype.add({ extension = { wgsl = "wgsl" } })
--- vim.treesitter.language.register('wgsl', {'wgsl'})
-local parser_config = require("nvim-treesitter.parsers")
-parser_config.wgsl = {
-  install_info = {
-    url = "https://github.com/szebniok/tree-sitter-wgsl",
-    files = { "src/parser.c" }
-  }
-}
 
 vim.api.nvim_create_autocmd('FileType', {
-  pattern = { 'wgsl', 'zig', 'python' },
-  callback = function() vim.treesitter.start() end,
-})                                                                -- highlighting
-vim.wo.foldexpr = 'v:lua.vim.treesitter.foldexpr()'               -- folds
-vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()" -- indentation
+  pattern = { 'wgsl', 'zig', 'python', 'lua' },
+  callback = function()
+    vim.treesitter.start()                                            -- highlighting
+    vim.wo.foldmethod = 'expr'
+    vim.wo.foldexpr = 'v:lua.vim.treesitter.foldexpr()'               -- folds
+    vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()" -- indentation
+  end,
+})
 
--- IRON REPL CONFIG
-local iron = require("iron.core")
-local view = require("iron.view")
-local common = require("iron.fts.common")
+vim.o.foldlevelstart = 99
 
-iron.setup {
-  config = {
-    -- Whether a repl should be discarded or not
-    scratch_repl = true,
-    -- Your repl definitions come here
-    repl_definition = {
-      sh = {
-        -- Can be a table or a function that
-        -- returns a table (see below)
-        command = { "cmd" }
-      },
-      python = {
-        command = { "python" }, -- or { "ipython", "--no-autoindent" }
-        format = common.bracketed_paste_python,
-        block_dividers = { "# %%", "#%%" },
-        env = { PYTHON_BASIC_REPL = "1" } --this is needed for python3.13 and up.
-      }
-    },
-    -- set the file type of the newly created repl to ft
-    -- bufnr is the buffer id of the REPL and ft is the filetype of the
-    -- language being used for the REPL.
-    repl_filetype = function(bufnr, ft)
-      return ft
-      -- or return a string name such as the following
-      -- return "iron"
-    end,
-    -- Send selections to the DAP repl if an nvim-dap session is running.
-    dap_integration = true,
-    -- How the repl window will be displayed
-    -- See below for more information
-    repl_open_cmd = view.split.vertical.rightbelow("%40"),
+-- MOLTEN (Jupyter) CELL HELPERS
+local function molten_cell_range()
+  local cur = vim.api.nvim_win_get_cursor(0)[1]
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  local first, last = 1, #lines
+  for i = cur, 1, -1 do
+    if lines[i]:match('^#%s*%%%%') then first = i + 1; break end
+  end
+  for i = cur + 1, #lines do
+    if lines[i]:match('^#%s*%%%%') then last = i - 1; break end
+  end
+  return first, last
+end
 
-    -- repl_open_cmd can also be an array-style table so that multiple
-    -- repl_open_commands can be given.
-    -- When repl_open_cmd is given as a table, the first command given will
-    -- be the command that `IronRepl` initially toggles.
-    -- Moreover, when repl_open_cmd is a table, each key will automatically
-    -- be available as a keymap (see `keymaps` below) with the names
-    -- toggle_repl_with_cmd_1, ..., toggle_repl_with_cmd_k
-    -- For example,
-    --
-    -- repl_open_cmd = {
-    --   view.split.vertical.rightbelow("%40"), -- cmd_1: open a repl to the right
-    --   view.split.rightbelow("%25")  -- cmd_2: open a repl below
-    -- }
+local function molten_run_cell()
+  local first, last = molten_cell_range()
+  vim.fn.setpos("'<", { 0, first, 1, 0 })
+  vim.fn.setpos("'>", { 0, last, 2147483647, 0 })
+  vim.cmd('MoltenEvaluateVisual')
+end
 
-  },
-  -- Iron doesn't set keymaps by default anymore.
-  -- You can set them here or manually add keymaps to the functions in iron.core
-  keymaps = {
-    toggle_repl = "<space>rr", -- toggles the repl open and closed.
-    -- If repl_open_command is a table as above, then the following keymaps are
-    -- available
-    -- toggle_repl_with_cmd_1 = "<space>rv",
-    -- toggle_repl_with_cmd_2 = "<space>rh",
-    restart_repl = "<space>rR", -- calls `IronRestart` to restart the repl
-    send_motion = "<space>sc",
-    visual_send = "<space>sc",
-    send_file = "<space>sf",
-    send_line = "<space>sl",
-    send_paragraph = "<space>sp",
-    send_until_cursor = "<space>su",
-    send_mark = "<space>sm",
-    send_code_block = "<space><sb>",
-    send_code_block_and_move = "<space><sn>",
-    mark_motion = "<space>mc",
-    mark_visual = "<space>mc",
-    remove_mark = "<space>md",
-    cr = "<space>s<cr>",
-    interrupt = "<space>s<space>",
-    exit = "<space>sq",
-    clear = "<space>cl",
-  },
-  -- If the highlight is on, you can change how it looks
-  -- For the available options, check nvim_set_hl
-  highlight = {
-    italic = true
-  },
-  ignore_blank_lines = true, -- ignore blank lines when sending visual select lines
-}
+local function molten_run_cell_and_next()
+  molten_run_cell()
+  local cur = vim.api.nvim_win_get_cursor(0)[1]
+  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+  for i = cur + 1, #lines do
+    if lines[i]:match('^#%s*%%%%') then
+      vim.api.nvim_win_set_cursor(0, { math.min(i + 1, #lines), 0 })
+      return
+    end
+  end
+end
 
--- iron also has a list of commands, see :h iron-commands for all available commands
-vim.keymap.set('n', '<space>rf', '<cmd>IronFocus<cr>')
-vim.keymap.set('n', '<space>rh', '<cmd>IronHide<cr>')
+-- Jupyter / Molten keymaps  (prefix: <leader>j)
+vim.keymap.set('n', '<leader>ji', ':MoltenInit<CR>',                  { silent = true, desc = 'Jupyter: init kernel' })
+vim.keymap.set('n', '<leader>jR', ':MoltenRestart!<CR>',              { silent = true, desc = 'Jupyter: restart kernel' })
+vim.keymap.set('n', '<leader>jd', ':MoltenDelete<CR>',                { silent = true, desc = 'Jupyter: delete cell output' })
+vim.keymap.set('n', '<leader>jh', ':MoltenHideOutput<CR>',            { silent = true, desc = 'Jupyter: hide output' })
+vim.keymap.set('n', '<leader>js', ':noautocmd MoltenEnterOutput<CR>', { silent = true, desc = 'Jupyter: show / enter output' })
+vim.keymap.set('n', '<leader>jl', ':MoltenEvaluateLine<CR>',          { silent = true, desc = 'Jupyter: run line' })
+vim.keymap.set('v', '<leader>jv', ':<C-u>MoltenEvaluateVisual<CR>gv', { silent = true, desc = 'Jupyter: run selection' })
+vim.keymap.set('n', '<leader>jr', ':MoltenReevaluateCell<CR>',        { silent = true, desc = 'Jupyter: re-evaluate cell' })
+vim.keymap.set('n', '<leader>jc', molten_run_cell,                    { silent = true, desc = 'Jupyter: run # %% cell' })
+vim.keymap.set('n', '<leader>jn', molten_run_cell_and_next,           { silent = true, desc = 'Jupyter: run cell + move to next' })
+
+-- VSCode-style cell shortcuts, python buffers only
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'python',
+  callback = function(args)
+    vim.keymap.set('n', '<C-CR>', molten_run_cell,
+      { buffer = args.buf, silent = true, desc = 'Run cell (Ctrl+Enter)' })
+    vim.keymap.set('n', '<S-CR>', molten_run_cell_and_next,
+      { buffer = args.buf, silent = true, desc = 'Run cell + next (Shift+Enter)' })
+  end,
+})
