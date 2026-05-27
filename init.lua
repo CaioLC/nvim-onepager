@@ -1,10 +1,41 @@
 -- OS dependencies (setup manually)
 -- ripgrep -> winget install BurntSushi.ripgrep.MSVC
 -- fd -> winget install sharkdp.fd
+-- tree-sitter CLI -> winget install tree-sitter.tree-sitter-cli  (auto-installed below if missing)
+-- LLVM (clang) -> required as the C compiler for tree-sitter parser builds (used via CC=clang)
+--                 winget install LLVM.LLVM (installs to C:\Program Files\LLVM\bin and adds to PATH)
 -- conda env 'nvim' -> pynvim, jupyter_client, ipykernel (for molten-nvim)
 
 -- PYTHON PROVIDER (must come before lazy setup so :UpdateRemotePlugins uses it)
-vim.g.python3_host_prog = 'C:/Users/c4ioc/.conda/envs/nvim/python.exe'
+-- Resolves to %USERPROFILE%\.conda\envs\nvim\python.exe at runtime, so the path
+-- is portable across machines as long as the env lives in that conventional spot.
+vim.g.python3_host_prog = vim.fn.expand('$USERPROFILE') .. '/.conda/envs/nvim/python.exe'
+
+-- Disable unused language providers to silence checkhealth warnings.
+vim.g.loaded_perl_provider = 0
+vim.g.loaded_ruby_provider = 0
+vim.g.loaded_node_provider = 0
+
+-- Use clang as the C compiler for tree-sitter parser builds (avoids needing MSVC cl.exe).
+-- Single-binary invocation sidesteps the CC-splitting issue Windows had with `zig cc`.
+vim.env.CC = 'clang'
+
+-- ENSURE TREE-SITTER CLI (needed by nvim-treesitter main branch to compile parsers)
+-- Route through the shell (string form) because winget is a Windows App Execution Alias
+-- (reparse point), which vim.fn.system's list form rejects as non-executable.
+if vim.fn.executable('tree-sitter') == 0 then
+  vim.notify('tree-sitter CLI not found. Installing via winget...', vim.log.levels.INFO)
+  local out = vim.fn.system(
+    'winget install --id tree-sitter.tree-sitter-cli -e ' ..
+    '--accept-source-agreements --accept-package-agreements'
+  )
+  if vim.v.shell_error ~= 0 then
+    vim.notify('Failed to install tree-sitter CLI:\n' .. out ..
+      '\nInstall manually: winget install tree-sitter.tree-sitter-cli', vim.log.levels.ERROR)
+  else
+    vim.notify('tree-sitter CLI installed. Restart nvim so PATH picks it up.', vim.log.levels.WARN)
+  end
+end
 
 -- SETUP LAZY.NVIM
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
@@ -111,7 +142,6 @@ require("lazy").setup({
     {
       "benlubas/molten-nvim",
       version = "^1.0.0",
-      build = ":UpdateRemotePlugins",
       dependencies = { "willothy/wezterm.nvim" },
       ft = { "python", "markdown" },
       init = function()
@@ -127,6 +157,20 @@ require("lazy").setup({
   -- configure any other settings here. see documentation for detailes.
   -- automatically check for plugin updates
   checker = { enabled = true },
+})
+
+-- Force every lazy-loaded plugin onto the runtimepath before :UpdateRemotePlugins
+-- runs, so ft/event/cmd-gated plugins (e.g. molten-nvim) get their rplugin/python3
+-- commands into the manifest. Without this, the scan only sees eagerly-loaded
+-- plugins and remote commands like :MoltenInit silently never register.
+vim.api.nvim_create_autocmd('User', {
+  pattern = { 'LazyInstall', 'LazyUpdate', 'LazySync' },
+  once = true,
+  callback = function()
+    local names = vim.tbl_map(function(p) return p.name end, require('lazy').plugins())
+    require('lazy').load({ plugins = names })
+    vim.cmd('UpdateRemotePlugins')
+  end,
 })
 
 -- CONFIGS

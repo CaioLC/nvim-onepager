@@ -12,6 +12,7 @@ local wezterm = require('wezterm')
 local config = wezterm.config_builder()
 
 config.default_prog = { 'powershell.exe', '-NoLogo' }
+config.default_cwd = 'C:/projects'
 config.color_scheme = 'Tokyo Night'
 config.hide_tab_bar_if_only_one_tab = true
 config.window_padding = { left = 8, right = 8, top = 4, bottom = 4 }
