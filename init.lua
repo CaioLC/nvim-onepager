@@ -1,10 +1,37 @@
--- OS dependencies (setup manually)
--- ripgrep -> winget install BurntSushi.ripgrep.MSVC
--- fd -> winget install sharkdp.fd
--- tree-sitter CLI -> winget install tree-sitter.tree-sitter-cli  (auto-installed below if missing)
--- LLVM (clang) -> required as the C compiler for tree-sitter parser builds (used via CC=clang)
---                 winget install LLVM.LLVM (installs to C:\Program Files\LLVM\bin and adds to PATH)
--- conda env 'nvim' -> pynvim, jupyter_client, ipykernel (for molten-nvim)
+-- =============================================================================
+-- OS dependencies (Windows; install manually unless marked auto-installed).
+-- Single source of truth for what a fresh machine needs before this config runs.
+-- =============================================================================
+--
+-- Terminal emulator (molten image rendering + <leader>wt native panes)
+--   wezterm                -> winget install wez.wezterm
+--                             (optional — <leader>wt falls back to nvim :terminal
+--                              when not in a wezterm session; molten image
+--                              rendering on Windows degrades without it)
+--
+-- Tree-sitter parser build chain
+--   LLVM (clang)           -> winget install LLVM.LLVM
+--   MSVC Build Tools       -> winget install Microsoft.VisualStudio.2022.BuildTools
+--                             (need VCTools workload + Windows 10 SDK for libc headers)
+--   tree-sitter CLI        -> winget install tree-sitter.tree-sitter-cli
+--                             (auto-installed below if missing)
+--
+-- Telescope backends
+--   ripgrep                -> winget install BurntSushi.ripgrep.MSVC
+--   fd                     -> winget install sharkdp.fd
+--
+-- LSP servers (must be on PATH)
+--   lua-language-server    -> winget install LuaLS.lua-language-server
+--   pyrefly                -> pip install pyrefly  (any env that's on PATH)
+--   zls                    -> manual: https://github.com/zigtools/zls/releases
+--   wgsl-analyzer          -> manual: https://github.com/wgsl-analyzer/wgsl-analyzer/releases
+--
+-- Python provider + Jupyter kernels (for molten-nvim)
+--   conda env 'nvim' at %USERPROFILE%\.conda\envs\nvim
+--     packages: pynvim, jupyter_client, ipykernel
+--   each conda env you want as a Jupyter kernel needs `ipykernel` installed;
+--     register them in bulk via :RegisterCondaKernels (defined later)
+-- =============================================================================
 
 -- PYTHON PROVIDER (must come before lazy setup so :UpdateRemotePlugins uses it)
 -- Resolves to %USERPROFILE%\.conda\envs\nvim\python.exe at runtime, so the path
@@ -215,7 +242,15 @@ vim.keymap.set('n', '<leader>wh', '<C-w>h', { desc = 'Focus window left' })
 vim.keymap.set('n', '<leader>wj', '<C-w>j', { desc = 'Focus window below' })
 vim.keymap.set('n', '<leader>wk', '<C-w>k', { desc = 'Focus window above' })
 vim.keymap.set('n', '<leader>wl', '<C-w>l', { desc = 'Focus window right' })
-vim.keymap.set('n', '<leader>wt', "<C-w>s<C-w>j:terminal<CR>", { desc = 'Open terminal in split below' })
+vim.keymap.set('n', '<leader>wt', function()
+  -- Inside wezterm: split the host pane (native, no nested terminal emulator).
+  -- Elsewhere: fall back to nvim's built-in :terminal in a split below.
+  if vim.env.WEZTERM_PANE then
+    vim.fn.jobstart({ 'wezterm', 'cli', 'split-pane', '--bottom' }, { detach = true })
+  else
+    vim.cmd('belowright split | terminal')
+  end
+end, { desc = 'Open terminal pane below' })
 vim.keymap.set('t', '<Esc>', '<C-\\><C-N>', { desc = 'Normal Mode in terminal' })
 vim.keymap.set('t', '<C-w>', "<C-\\><C-n><C-w>")
 vim.keymap.set('n', '<C-g>', "3<C-w>_", { desc = 'Maximize current window' })
