@@ -150,7 +150,10 @@ require("lazy").setup({
         vim.g.molten_auto_open_output = false
         vim.g.molten_wrap_output = true
         vim.g.molten_virt_text_output = true
-        vim.g.molten_virt_lines_off_by_1 = true
+        vim.g.molten_virt_lines_off_by_1 = false
+        vim.g.molten_output_show_more = true
+        vim.g.molten_use_border_highlights = true
+        vim.g.molten_output_win_border = "rounded"
       end,
     }
   },
@@ -315,6 +318,36 @@ vim.api.nvim_create_autocmd('FileType', {
 })
 
 vim.o.foldlevelstart = 99
+
+-- :RegisterCondaKernels — make every conda env that has ipykernel installed visible
+-- to molten by registering it as a user-level Jupyter kernel spec. Re-run after
+-- creating new envs. Skips 'base' and 'nvim' (the latter is molten's python provider,
+-- not a kernel). nb_conda_kernels' auto-detection does NOT work here because molten
+-- calls jupyter_client.kernelspec directly, bypassing the traitlets config that
+-- nb_conda_kernels hooks into.
+vim.api.nvim_create_user_command('RegisterCondaKernels', function()
+  local script = [[
+conda env list | Where-Object { $_ -match '^\S' -and $_ -notmatch '^#' } | ForEach-Object {
+  $name, $path = ($_ -split '\s+', 2)[0], ($_ -split '\s+')[-1]
+  if ($name -in 'base','nvim') { return }
+  $py = Join-Path $path 'python.exe'
+  if (-not (Test-Path $py)) { return }
+  & $py -c "import ipykernel" 2>$null
+  if ($LASTEXITCODE -eq 0) {
+    & $py -m ipykernel install --user --name $name --display-name "Python ($name)"
+  }
+}
+]]
+  local tmp = vim.fn.tempname() .. '.ps1'
+  vim.fn.writefile(vim.split(script, '\n'), tmp)
+  local out = vim.fn.system({ 'powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', tmp })
+  vim.fn.delete(tmp)
+  if vim.v.shell_error ~= 0 then
+    vim.notify('RegisterCondaKernels failed:\n' .. out, vim.log.levels.ERROR)
+  else
+    vim.notify(out ~= '' and out or 'RegisterCondaKernels: nothing to do', vim.log.levels.INFO)
+  end
+end, { desc = 'Register every conda env (with ipykernel) as a Jupyter kernel spec' })
 
 -- MOLTEN (Jupyter) CELL HELPERS
 local function molten_cell_range()
