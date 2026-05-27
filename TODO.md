@@ -18,8 +18,9 @@ Continuing from 2026-05-25 setup session. The toolchain swap (zig → clang + MS
 ## After everything is on PATH
 
 - [ ] Restart **WezTerm** (not just nvim) so PATH propagates
-- [ ] In nvim: `:UpdateRemotePlugins` (refreshes molten's Python remote-plugin manifest)
 - [ ] `:checkhealth` to confirm
+
+(Molten's `:UpdateRemotePlugins` step is no longer manual — the `User LazyInstall/Update/Sync` autocmd in `init.lua` force-loads all plugins and regenerates the manifest on any `:Lazy sync`.)
 
 ## Already done this session
 

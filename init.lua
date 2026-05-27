@@ -127,6 +127,12 @@ require("lazy").setup({
       event = "VeryLazy",
       opts = {
         preset = "helix",
+        spec = {
+          { "<leader>f", group = "find" },
+          { "<leader>j", group = "jupyter" },
+          { "<leader>w", group = "window" },
+          { "<leader>c", group = "code" },
+        },
       },
       keys = {
         {
@@ -199,14 +205,20 @@ vim.keymap.set('n', '<leader>rc', ':e $MYVIMRC<CR>', { desc = 'Open [R]C config'
 vim.keymap.set('n', '<leader>L', ':Lazy<CR>', { desc = 'Lazy.nvim UI' })            -- Open Lazy
 vim.keymap.set('n', '<Esc>', ':nohlsearch<CR>', { desc = 'Clear search highlight' })
 vim.keymap.set({ 'n', 'v' }, '<Space>', '<Nop>')                                    -- space with no following letter has no effect on normal and visual mode
--- terminal
+-- window
+vim.keymap.set('n', '<leader>ws', '<C-w>s', { desc = 'Split window horizontal' })
+vim.keymap.set('n', '<leader>wv', '<C-w>v', { desc = 'Split window vertical' })
+vim.keymap.set('n', '<leader>wq', '<C-w>q', { desc = 'Close current window' })
+vim.keymap.set('n', '<leader>wo', '<C-w>o', { desc = 'Close other windows' })
+vim.keymap.set('n', '<leader>w=', '<C-w>=', { desc = 'Equalize window sizes' })
+vim.keymap.set('n', '<leader>wh', '<C-w>h', { desc = 'Focus window left' })
+vim.keymap.set('n', '<leader>wj', '<C-w>j', { desc = 'Focus window below' })
+vim.keymap.set('n', '<leader>wk', '<C-w>k', { desc = 'Focus window above' })
+vim.keymap.set('n', '<leader>wl', '<C-w>l', { desc = 'Focus window right' })
 vim.keymap.set('n', '<leader>wt', "<C-w>s<C-w>j:terminal<CR>", { desc = 'Open terminal in split below' })
 vim.keymap.set('t', '<Esc>', '<C-\\><C-N>', { desc = 'Normal Mode in terminal' })
 vim.keymap.set('t', '<C-w>', "<C-\\><C-n><C-w>")
 vim.keymap.set('n', '<C-g>', "3<C-w>_", { desc = 'Maximize current window' })
--- folds
-vim.keymap.set('n', '<leader>zm', 'zM', { desc = 'Fold all functions/structs' })
-vim.keymap.set('n', '<leader>zr', 'zR', { desc = 'Unfold all' })
 -- telescope
 local t_builtin = require('telescope.builtin')
 vim.keymap.set('n', '<leader>ff', t_builtin.find_files, { desc = 'Telescope find files' })
