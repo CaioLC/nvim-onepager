@@ -43,6 +43,11 @@ vim.g.loaded_perl_provider = 0
 vim.g.loaded_ruby_provider = 0
 vim.g.loaded_node_provider = 0
 
+-- Disable built-in netrw so oil.nvim can hijack directory buffers (BufReadCmd).
+-- Must be set before plugins load.
+vim.g.loaded_netrw = 1
+vim.g.loaded_netrwPlugin = 1
+
 -- Use clang as the C compiler for tree-sitter parser builds (avoids needing MSVC cl.exe).
 -- Single-binary invocation sidesteps the CC-splitting issue Windows had with `zig cc`.
 vim.env.CC = 'clang'
@@ -142,6 +147,15 @@ require("lazy").setup({
     {
       'nvim-telescope/telescope.nvim',
       dependencies = { 'nvim-lua/plenary.nvim' }
+    },
+
+    {
+      'stevearc/oil.nvim',
+      dependencies = { 'nvim-tree/nvim-web-devicons' },
+      lazy = false, -- needs to load before BufReadCmd fires on directory args
+      opts = {
+        view_options = { show_hidden = true },
+      },
     },
 
     {
@@ -254,6 +268,9 @@ end, { desc = 'Open terminal pane below' })
 vim.keymap.set('t', '<Esc>', '<C-\\><C-N>', { desc = 'Normal Mode in terminal' })
 vim.keymap.set('t', '<C-w>', "<C-\\><C-n><C-w>")
 vim.keymap.set('n', '<C-g>', "3<C-w>_", { desc = 'Maximize current window' })
+-- file explorer
+vim.keymap.set('n', '<leader>e', '<Cmd>Oil<CR>', { desc = 'Open file explorer (oil)' })
+
 -- telescope
 local t_builtin = require('telescope.builtin')
 vim.keymap.set('n', '<leader>ff', t_builtin.find_files, { desc = 'Telescope find files' })
