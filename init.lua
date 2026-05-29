@@ -538,6 +538,7 @@ end
 
 -- Jupyter / Molten keymaps  (prefix: <leader>j)
 vim.keymap.set('n', '<leader>ji', ':MoltenInit<CR>',                  { silent = true, desc = 'Jupyter: init kernel' })
+vim.keymap.set('n', '<leader>jx', ':MoltenInterrupt<CR>',             { silent = true, desc = 'Jupyter: interrupt (stop running cell)' })
 vim.keymap.set('n', '<leader>jR', ':MoltenRestart!<CR>',              { silent = true, desc = 'Jupyter: restart kernel' })
 vim.keymap.set('n', '<leader>jd', ':MoltenDelete<CR>',                { silent = true, desc = 'Jupyter: delete cell output' })
 vim.keymap.set('n', '<leader>jh', ':MoltenHideOutput<CR>',            { silent = true, desc = 'Jupyter: hide output' })
