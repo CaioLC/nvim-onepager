@@ -72,6 +72,11 @@ if vim.fn.executable('tree-sitter') == 0 then
   end
 end
 
+-- Set leaders BEFORE lazy.setup so plugin specs using `keys = { '<leader>...' }`
+-- resolve `<leader>` to space (not the default `\`) at spec-evaluation time.
+vim.g.mapleader = " "
+vim.g.maplocalleader = "\\"
+
 -- SETUP LAZY.NVIM
 local lazypath = vim.fn.stdpath("data") .. "/lazy/lazy.nvim"
 if not (vim.uv or vim.loop).fs_stat(lazypath) then
@@ -264,8 +269,6 @@ vim.o.tabstop = 2
 vim.o.shiftwidth = 2
 vim.o.expandtab = true
 vim.o.termguicolors = true
-vim.g.mapleader = " "
-vim.g.maplocalleader = "\\"
 require('lualine').setup({
   sections = {
     lualine_b = { 'branch', 'diagnostics' },
