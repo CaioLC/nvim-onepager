@@ -187,6 +187,33 @@ require("lazy").setup({
     },
 
     {
+      'stevearc/aerial.nvim',
+      dependencies = {
+        'nvim-treesitter/nvim-treesitter',
+        'nvim-tree/nvim-web-devicons',
+      },
+      keys = {
+        { '<leader>o', '<cmd>AerialToggle!<CR>', desc = 'Toggle symbols outline' },
+      },
+      opts = {
+        backends = { 'lsp', 'treesitter', 'markdown', 'man' },
+        layout = {
+          default_direction = 'right',
+          placement = 'edge',
+          min_width = 30,
+        },
+        -- Symbol kinds shown in the outline. Defaults omit Constant/Variable;
+        -- include Constant explicitly so module-level constants surface.
+        filter_kind = {
+          'Class', 'Constructor', 'Constant', 'Enum', 'Function',
+          'Interface', 'Method', 'Module', 'Struct',
+        },
+        show_guides = true,
+        autojump = true,
+      },
+    },
+
+    {
       "benlubas/molten-nvim",
       version = "^1.0.0",
       dependencies = { "willothy/wezterm.nvim" },
