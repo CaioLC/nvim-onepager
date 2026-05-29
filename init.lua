@@ -200,7 +200,9 @@ require("lazy").setup({
         vim.g.molten_virt_lines_off_by_1 = false
         vim.g.molten_output_show_more = true
         vim.g.molten_use_border_highlights = true
-        vim.g.molten_output_win_border = "rounded"
+        -- use_border_highlights only works when the border is a table, not a
+        -- string preset like "rounded" — molten recolors each side per output state.
+        vim.g.molten_output_win_border = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
       end,
     }
   },
@@ -268,6 +270,9 @@ end, { desc = 'Open terminal pane below' })
 vim.keymap.set('t', '<Esc>', '<C-\\><C-N>', { desc = 'Normal Mode in terminal' })
 vim.keymap.set('t', '<C-w>', "<C-\\><C-n><C-w>")
 vim.keymap.set('n', '<C-g>', "3<C-w>_", { desc = 'Maximize current window' })
+-- comment toggle (Ctrl+/ needs CSI-u in wezterm to be distinct from <CR>/<BS>)
+vim.keymap.set('n', '<C-/>', 'gcc', { remap = true, desc = 'Toggle comment line' })
+vim.keymap.set('x', '<C-/>', 'gc', { remap = true, desc = 'Toggle comment selection' })
 -- file explorer
 vim.keymap.set('n', '<leader>e', '<Cmd>Oil<CR>', { desc = 'Open file explorer (oil)' })
 
@@ -286,9 +291,14 @@ vim.lsp.config['luals'] = {
   root_markers = { { '.luarc.json', '.luarc.jsonc' }, '.git' },
   settings = {
     Lua = {
-      runtime = {
-        version = 'LuaJIT',
-      }
+      runtime = { version = 'LuaJIT' },
+      -- Teach luals about the `vim` global and the Neovim runtime files so
+      -- `vim.api.*`, `vim.uv.*`, etc. resolve instead of warning as undefined.
+      diagnostics = { globals = { 'vim' } },
+      workspace = {
+        library = vim.api.nvim_get_runtime_file('', true),
+        checkThirdParty = false,
+      },
     }
   }
 }
@@ -328,6 +338,13 @@ vim.api.nvim_create_autocmd('LspAttach', {
   callback = function(args)
     local bufnr = args.buf
     vim.bo[bufnr].omnifunc = 'v:lua.vim.lsp.omnifunc'
+
+    -- Autocomplete as you type (native 0.11 API). Pops on the server's trigger
+    -- chars (e.g. '.') and filters as you keep typing; <C-x><C-o> still works.
+    local client = vim.lsp.get_client_by_id(args.data.client_id)
+    if client and client:supports_method('textDocument/completion') then
+      vim.lsp.completion.enable(true, args.data.client_id, bufnr, { autotrigger = true })
+    end
 
     -- Help with signature help
     vim.keymap.set('i', '<C-h>', vim.lsp.buf.signature_help, { buffer = bufnr })
