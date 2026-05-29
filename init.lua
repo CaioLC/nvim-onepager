@@ -9,6 +9,9 @@
 --                              when not in a wezterm session; molten image
 --                              rendering on Windows degrades without it)
 --
+-- Git UI (floating panel via <leader>gg)
+--   lazygit                -> winget install JesseDuffield.lazygit
+--
 -- Tree-sitter parser build chain
 --   LLVM (clang)           -> winget install LLVM.LLVM
 --   MSVC Build Tools       -> winget install Microsoft.VisualStudio.2022.BuildTools
@@ -170,6 +173,7 @@ require("lazy").setup({
         preset = "helix",
         spec = {
           { "<leader>f", group = "find" },
+          { "<leader>g", group = "git" },
           { "<leader>j", group = "jupyter" },
           { "<leader>w", group = "window" },
           { "<leader>c", group = "code" },
@@ -303,6 +307,39 @@ vim.keymap.set('x', '<C-/>', 'gc', { remap = true, desc = 'Toggle comment select
 -- file explorer
 vim.keymap.set('n', '<leader>e', '<Cmd>Oil<CR>', { desc = 'Open file explorer (oil)' })
 
+-- lazygit in a centered floating terminal. Auto-closes when lazygit exits;
+-- :checktime reloads any buffers whose on-disk file lazygit changed (stash,
+-- checkout, commit-amend, etc.) so nvim doesn't show a stale view.
+vim.keymap.set('n', '<leader>gg', function()
+  if vim.fn.executable('lazygit') == 0 then
+    vim.notify('lazygit not on PATH. Install: winget install JesseDuffield.lazygit',
+      vim.log.levels.ERROR)
+    return
+  end
+  local buf = vim.api.nvim_create_buf(false, true)
+  local width = math.floor(vim.o.columns * 0.9)
+  local height = math.floor(vim.o.lines * 0.9)
+  local win = vim.api.nvim_open_win(buf, true, {
+    relative = 'editor',
+    width = width,
+    height = height,
+    row = math.floor((vim.o.lines - height) / 2),
+    col = math.floor((vim.o.columns - width) / 2),
+    style = 'minimal',
+    border = 'rounded',
+  })
+  vim.fn.jobstart('lazygit', {
+    term = true,
+    on_exit = function()
+      if vim.api.nvim_win_is_valid(win) then
+        vim.api.nvim_win_close(win, true)
+      end
+      vim.cmd('checktime')
+    end,
+  })
+  vim.cmd('startinsert')
+end, { desc = 'Lazygit (floating)' })
+
 -- telescope
 local t_builtin = require('telescope.builtin')
 vim.keymap.set('n', '<leader>ff', t_builtin.find_files, { desc = 'Telescope find files' })
@@ -434,12 +471,18 @@ vim.o.foldlevelstart = 99
 -- calls jupyter_client.kernelspec directly, bypassing the traitlets config that
 -- nb_conda_kernels hooks into.
 vim.api.nvim_create_user_command('RegisterCondaKernels', function()
+  -- Use `conda env list --json` rather than parsing the plaintext output: the
+  -- text format is whitespace-delimited and breaks when the env path contains
+  -- a space (e.g. `C:\Users\Caio Castro\...`), which silently dropped every
+  -- env on this machine and made the command a no-op.
   local script = [[
-conda env list | Where-Object { $_ -match '^\S' -and $_ -notmatch '^#' } | ForEach-Object {
-  $name, $path = ($_ -split '\s+', 2)[0], ($_ -split '\s+')[-1]
-  if ($name -in 'base','nvim') { return }
-  $py = Join-Path $path 'python.exe'
-  if (-not (Test-Path $py)) { return }
+$envs = (conda env list --json | ConvertFrom-Json).envs
+foreach ($p in $envs) {
+  if ($p -notlike '*\envs\*') { continue }   # skips base (no /envs/ segment)
+  $name = Split-Path -Leaf $p
+  if ($name -eq 'nvim') { continue }         # molten's python provider, not a kernel
+  $py = Join-Path $p 'python.exe'
+  if (-not (Test-Path $py)) { continue }
   & $py -c "import ipykernel" 2>$null
   if ($LASTEXITCODE -eq 0) {
     & $py -m ipykernel install --user --name $name --display-name "Python ($name)"
