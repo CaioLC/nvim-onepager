@@ -154,6 +154,7 @@ require("lazy").setup({
 
     {
       'nvim-telescope/telescope.nvim',
+      lazy = false, -- always used; load at startup
       dependencies = { 'nvim-lua/plenary.nvim' }
     },
 
@@ -272,6 +273,18 @@ vim.o.termguicolors = true
 require('lualine').setup({
   sections = {
     lualine_b = { 'branch', 'diagnostics' },
+    lualine_c = {
+      {
+        'filename',
+        path = 1,                       -- relative path (keeps symbols/modified flags)
+        fmt = function(str)             -- trim to file + 2 parent dirs, never above root
+          if not str or str == '' then return str end
+          local parts = vim.split(str:gsub('\\', '/'), '/', { trimempty = true })
+          local n = #parts
+          return table.concat({ unpack(parts, math.max(1, n - 2), n) }, '/')
+        end,
+      },
+    },
     lualine_x = { 'filetype' },
     lualine_y = { 'lsp_status' },
   }
