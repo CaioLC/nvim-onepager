@@ -549,10 +549,47 @@ local function molten_run_cell_and_next()
   end
 end
 
+-- List every running kernel. MoltenRunningKernels(false) returns the global set
+-- (pass true for buffer-local only); :MoltenInfo also shows them but mixes in the
+-- not-yet-running available kernels, so a plain notify is clearer for "what's live".
+local function molten_list_kernels()
+  local ok, running = pcall(vim.fn.MoltenRunningKernels, false)
+  if not ok or vim.tbl_isempty(running) then
+    vim.notify('Molten: no running kernels', vim.log.levels.INFO)
+    return
+  end
+  vim.notify('Molten running kernels:\n  ' .. table.concat(running, '\n  '), vim.log.levels.INFO)
+end
+
+-- Kill this buffer's kernel AND close the wezterm pane it rendered images into.
+-- With molten_image_provider = "wezterm", MoltenInit splits off a terminal pane
+-- (molten_split_direction, default "right") for images; :MoltenDeinit shuts the
+-- kernel down and clears the nvim-side output windows, but molten only closes that
+-- split on full nvim exit — so close it here by killing the pane in the split dir.
+local function molten_kill()
+  local ok, running = pcall(vim.fn.MoltenRunningKernels, true) -- buffer-local kernels
+  if not ok or vim.tbl_isempty(running) then
+    vim.notify('Molten: no kernel in this buffer', vim.log.levels.INFO)
+    return
+  end
+  vim.cmd('MoltenDeinit')
+  local wok, wez = pcall(require, 'wezterm')
+  if not wok then return end
+  local dir = ({ right = 'Right', left = 'Left', top = 'Up', bottom = 'Down' })
+    [vim.g.molten_split_direction or 'right'] or 'Right'
+  local got, pane = pcall(wez.exec_sync, { 'cli', 'get-pane-direction', dir })
+  local pane_id = got and pane and tonumber((tostring(pane):gsub('%s+', '')))
+  if pane_id then
+    pcall(wez.exec_sync, { 'cli', 'kill-pane', '--pane-id', tostring(pane_id) })
+  end
+end
+
 -- Jupyter / Molten keymaps  (prefix: <leader>j)
 vim.keymap.set('n', '<leader>ji', ':MoltenInit<CR>',                  { silent = true, desc = 'Jupyter: init kernel' })
 vim.keymap.set('n', '<leader>jx', ':MoltenInterrupt<CR>',             { silent = true, desc = 'Jupyter: interrupt (stop running cell)' })
 vim.keymap.set('n', '<leader>jR', ':MoltenRestart!<CR>',              { silent = true, desc = 'Jupyter: restart kernel' })
+vim.keymap.set('n', '<leader>jk', molten_list_kernels,               { silent = true, desc = 'Jupyter: list running kernels' })
+vim.keymap.set('n', '<leader>jK', molten_kill,                       { silent = true, desc = 'Jupyter: kill kernel + image pane (this buffer)' })
 vim.keymap.set('n', '<leader>jd', ':MoltenDelete<CR>',                { silent = true, desc = 'Jupyter: delete cell output' })
 vim.keymap.set('n', '<leader>jh', ':MoltenHideOutput<CR>',            { silent = true, desc = 'Jupyter: hide output' })
 vim.keymap.set('n', '<leader>js', ':noautocmd MoltenEnterOutput<CR>', { silent = true, desc = 'Jupyter: show / enter output' })
