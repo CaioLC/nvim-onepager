@@ -589,15 +589,19 @@ local function molten_kill()
     vim.notify('Molten: no kernel in this buffer', vim.log.levels.INFO)
     return
   end
-  vim.cmd('MoltenDeinit')
+  -- Locate molten's image pane (the split next to nvim) before deinit. wezterm.nvim's
+  -- get_pane_direction returns the neighbour pane id directly, trimmed — wrapping the
+  -- raw exec_sync in pcall was capturing its (ok, stdout, stderr) boolean, not the id.
   local wok, wez = pcall(require, 'wezterm')
-  if not wok then return end
   local dir = ({ right = 'Right', left = 'Left', top = 'Up', bottom = 'Down' })
     [vim.g.molten_split_direction or 'right'] or 'Right'
-  local got, pane = pcall(wez.exec_sync, { 'cli', 'get-pane-direction', dir })
-  local pane_id = got and pane and tonumber((tostring(pane):gsub('%s+', '')))
+  -- No explicit pane arg: wezterm infers it from $WEZTERM_PANE (inherited by the
+  -- subprocess), so the lookup is relative to nvim's own pane. Passing the id would
+  -- feed a number into vim.system, which only accepts string args.
+  local pane_id = wok and wez.get_pane_direction(dir)
+  vim.cmd('MoltenDeinit')
   if pane_id then
-    pcall(wez.exec_sync, { 'cli', 'kill-pane', '--pane-id', tostring(pane_id) })
+    wez.exec_sync({ 'cli', 'kill-pane', '--pane-id', tostring(pane_id) })
   end
 end
 
