@@ -153,6 +153,42 @@ require("lazy").setup({
     },
 
     {
+      -- Auto-close (), [], {}, quotes, backticks. Treesitter-aware (check_ts), so it
+      -- won't pair inside strings/comments. Per-language config lives in this block:
+      --   • disable_filetype — turn autopairs OFF entirely for a filetype
+      --   • per_ft_rules      — add extra pairs scoped to specific filetypes
+      -- The built-in pairs already apply to every language; edit the tables to tune.
+      'windwp/nvim-autopairs',
+      event = 'InsertEnter',
+      dependencies = { 'hrsh7th/nvim-cmp', 'nvim-treesitter/nvim-treesitter' },
+      config = function()
+        local npairs = require('nvim-autopairs')
+        local Rule = require('nvim-autopairs.rule')
+
+        npairs.setup({
+          check_ts = true,                          -- skip pairing inside strings/comments
+          disable_filetype = { 'TelescopePrompt' }, -- filetypes with autopairs OFF
+        })
+
+        -- Language-specific extra pairs. Rule(open, close, filetypes) scopes a pair to
+        -- the listed filetypes only. Add entries here to configure pairs per language,
+        -- e.g. angle brackets for generics/tags (commented out — uncomment to enable):
+        local per_ft_rules = {
+          -- { open = '<', close = '>', ft = { 'rust', 'zig', 'html', 'superhtml' } },
+        }
+        for _, r in ipairs(per_ft_rules) do
+          npairs.add_rule(Rule(r.open, r.close, r.ft))
+        end
+
+        -- nvim-cmp integration: insert () after accepting a function/method completion.
+        local ok, cmp = pcall(require, 'cmp')
+        if ok then
+          cmp.event:on('confirm_done', require('nvim-autopairs.completion.cmp').on_confirm_done())
+        end
+      end,
+    },
+
+    {
       'nvim-telescope/telescope.nvim',
       lazy = false, -- always used; load at startup
       dependencies = { 'nvim-lua/plenary.nvim' }
