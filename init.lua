@@ -656,13 +656,15 @@ vim.keymap.set('n', '<leader>jr', ':MoltenReevaluateCell<CR>',        { silent =
 vim.keymap.set('n', '<leader>jc', molten_run_cell,                    { silent = true, desc = 'Jupyter: run # %% cell' })
 vim.keymap.set('n', '<leader>jn', molten_run_cell_and_next,           { silent = true, desc = 'Jupyter: run cell + move to next' })
 
--- VSCode-style cell shortcuts, python buffers only
+-- VSCode-style cell shortcuts, python buffers only. Mapped in normal AND insert mode
+-- so you can run a cell without leaving insert; the function rhs inserts nothing and
+-- keeps the current mode (depends on the CSI-u <C-CR>/<S-CR> encoding from wezterm.lua).
 vim.api.nvim_create_autocmd('FileType', {
   pattern = 'python',
   callback = function(args)
-    vim.keymap.set('n', '<C-CR>', molten_run_cell,
+    vim.keymap.set({ 'n', 'i' }, '<C-CR>', molten_run_cell,
       { buffer = args.buf, silent = true, desc = 'Run cell (Ctrl+Enter)' })
-    vim.keymap.set('n', '<S-CR>', molten_run_cell_and_next,
+    vim.keymap.set({ 'n', 'i' }, '<S-CR>', molten_run_cell_and_next,
       { buffer = args.buf, silent = true, desc = 'Run cell + next (Shift+Enter)' })
   end,
 })
