@@ -22,10 +22,10 @@ Continuing from 2026-05-25 setup session. The toolchain swap (zig → clang + MS
 
 (Molten's `:UpdateRemotePlugins` step is no longer manual — the `User LazyInstall/Update/Sync` autocmd in `init.lua` force-loads all plugins and regenerates the manifest on any `:Lazy sync`.)
 
-## Fixed — Molten kill-kernel closes the wezterm image pane (root cause found 2026-06-09)
+## Done — Molten kill-kernel closes the wezterm image pane (2026-06-09, live-confirmed)
 
-`<leader>jK` (`molten_kill` in `init.lua`) now kills the buffer's kernel via `:MoltenDeinit`
-AND closes the wezterm split pane molten opens for image output.
+`<leader>jK` (`molten_kill` in `init.lua`) kills the buffer's kernel via `:MoltenDeinit`
+AND closes the wezterm split pane molten opens for image output. Confirmed working.
 
 Root cause of the earlier failure: `pcall(wez.exec_sync, {...})` captured `exec_sync`'s
 first return value, which is its `(ok, stdout, stderr)` **boolean** `ok` — not the pane id —
@@ -34,11 +34,7 @@ wezterm.nvim's `get_pane_direction(dir)`, which returns the trimmed neighbour pa
 directly; the pane is then killed with `exec_sync({'cli','kill-pane','--pane-id', id})`.
 Direction comes from `molten_split_direction` (default `"right"`); the reference pane is
 inferred from `$WEZTERM_PANE` (inherited by the subprocess), so no pane id is passed in
-(passing a number would break `vim.system`, which wants string args).
-
-Committed in `c177b8b`. **Still wants one live test**: run a kernel, hit `<leader>jK`,
-confirm the right-hand pane actually closes. If it ever misfires, the more robust fallback
-(noted before) is to capture the pane id right after `MoltenInit` and kill that exact id.
+(passing a number would break `vim.system`, which wants string args). Committed in `c177b8b`.
 
 ## Already done this session
 
