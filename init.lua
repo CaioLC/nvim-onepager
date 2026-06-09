@@ -308,6 +308,10 @@ vim.keymap.set('n', '<leader>rc', ':e $MYVIMRC<CR>', { desc = 'Open [R]C config'
 vim.keymap.set('n', '<leader>L', ':Lazy<CR>', { desc = 'Lazy.nvim UI' })            -- Open Lazy
 vim.keymap.set('n', '<Esc>', ':nohlsearch<CR>', { desc = 'Clear search highlight' })
 vim.keymap.set({ 'n', 'v' }, '<Space>', '<Nop>')                                    -- space with no following letter has no effect on normal and visual mode
+-- With wrap on, move by screen line so j/k step through wrapped rows one at a time.
+-- The v:count guard keeps {count}j/k (and relativenumber jumps like 5k) on real lines.
+vim.keymap.set({ 'n', 'v' }, 'j', "v:count == 0 ? 'gj' : 'j'", { expr = true, silent = true, desc = 'Down by screen line' })
+vim.keymap.set({ 'n', 'v' }, 'k', "v:count == 0 ? 'gk' : 'k'", { expr = true, silent = true, desc = 'Up by screen line' })
 -- window
 vim.keymap.set('n', '<leader>ws', '<C-w>s', { desc = 'Split window horizontal' })
 vim.keymap.set('n', '<leader>wv', '<C-w>v', { desc = 'Split window vertical' })
