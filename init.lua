@@ -241,6 +241,19 @@ require("lazy").setup({
         -- string preset like "rounded" — molten recolors each side per output state.
         vim.g.molten_output_win_border = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
       end,
+    },
+
+    {
+      -- In-buffer markdown rendering (headings, lists, code blocks, tables) via
+      -- virtual text + concealment. Pure Lua, no browser/node. Relies on the
+      -- markdown + markdown_inline treesitter parsers installed below.
+      'MeanderingProgrammer/render-markdown.nvim',
+      dependencies = { 'nvim-treesitter/nvim-treesitter', 'nvim-tree/nvim-web-devicons' },
+      ft = { 'markdown' },
+      opts = {},
+      keys = {
+        { '<leader>tm', '<cmd>RenderMarkdown toggle<CR>', desc = 'Toggle markdown render' },
+      },
     }
   },
   -- configure any other settings here. see documentation for detailes.
