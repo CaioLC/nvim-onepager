@@ -22,35 +22,23 @@ Continuing from 2026-05-25 setup session. The toolchain swap (zig → clang + MS
 
 (Molten's `:UpdateRemotePlugins` step is no longer manual — the `User LazyInstall/Update/Sync` autocmd in `init.lua` force-loads all plugins and regenerates the manifest on any `:Lazy sync`.)
 
-## In progress — Molten kill-kernel should also close the wezterm image pane (2026-06-08)
+## Fixed — Molten kill-kernel closes the wezterm image pane (root cause found 2026-06-09)
 
-`<leader>jK` (`molten_kill` in `init.lua`) kills the buffer's kernel via `:MoltenDeinit`
-and then tries to close the wezterm split pane molten opens for image output. **The
-kernel dies but the right-hand terminal pane stays open** — the close step isn't working.
+`<leader>jK` (`molten_kill` in `init.lua`) now kills the buffer's kernel via `:MoltenDeinit`
+AND closes the wezterm split pane molten opens for image output.
 
-Context already established:
-- Molten's wezterm provider (`molten_image_provider = "wezterm"`) creates the split pane
-  at `MoltenInit` time (rplugin `__init__.py:203` → `WeztermCanvas.wezterm_split`), in
-  direction `molten_split_direction` (default `"right"`, not overridden in our config).
-- `:MoltenDeinit` does NOT close that pane — molten only calls `canvas.deinit()`
-  (`close_image_pane`) from `_deinitialize`, which runs on full nvim ExitPre, not on deinit.
-- Our `molten_kill` attempt: `require('wezterm').exec_sync({'cli','get-pane-direction','Right'})`
-  to find the pane, then `kill-pane --pane-id`. This is what's failing.
+Root cause of the earlier failure: `pcall(wez.exec_sync, {...})` captured `exec_sync`'s
+first return value, which is its `(ok, stdout, stderr)` **boolean** `ok` — not the pane id —
+so `tonumber(true)` was always `nil` and nothing got killed. Fix: drop the pcall and use
+wezterm.nvim's `get_pane_direction(dir)`, which returns the trimmed neighbour pane id
+directly; the pane is then killed with `exec_sync({'cli','kill-pane','--pane-id', id})`.
+Direction comes from `molten_split_direction` (default `"right"`); the reference pane is
+inferred from `$WEZTERM_PANE` (inherited by the subprocess), so no pane id is passed in
+(passing a number would break `vim.system`, which wants string args).
 
-Things to try tomorrow:
-- Verify what `wezterm.exec_sync({'cli','get-pane-direction','Right'})` actually returns
-  (return-value shape may differ from the molten loader's usage; maybe it's not (ok, stdout)).
-  Test live: `:lua print(vim.inspect(require('wezterm').exec_sync({'cli','get-pane-direction','Right'})))`
-- Direction string case — confirm wezterm cli wants `Right` vs `right`.
-- The molten loader (`lua/load_wezterm_nvim.lua`) closes the pane via `send-text` of a
-  `wezterm cli kill-pane` command into the pane, NOT a direct `cli kill-pane` — maybe the
-  direct form needs `--pane-id` as the molten-tracked id, which we don't have from Lua.
-- More robust alternative: capture the image pane id ourselves right after `MoltenInit`
-  (record `get-pane-direction` result into a global), then kill that exact id on deinit.
-  Watch out: `MoltenInit` with a kernel picker is async, so capture must happen after the
-  split actually exists.
-- Possibly cleanest: check whether molten exposes the pane id, or file/patch upstream so
-  `MoltenDeinit` closes the pane.
+Committed in `c177b8b`. **Still wants one live test**: run a kernel, hit `<leader>jK`,
+confirm the right-hand pane actually closes. If it ever misfires, the more robust fallback
+(noted before) is to capture the pane id right after `MoltenInit` and kill that exact id.
 
 ## Already done this session
 
