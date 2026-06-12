@@ -342,7 +342,9 @@ require('lualine').setup({
 -- KEYMAPS | Keybindings
 vim.keymap.set('n', '<leader>rc', ':e $MYVIMRC<CR>', { desc = 'Open [R]C config' }) -- Open init.lua
 vim.keymap.set('n', '<leader>L', ':Lazy<CR>', { desc = 'Lazy.nvim UI' })            -- Open Lazy
-vim.keymap.set('n', '<Esc>', ':nohlsearch<CR>', { desc = 'Clear search highlight' })
+-- <Cmd> (not ':...<CR>') so it runs without entering command-line mode and without
+-- swallowing a pending count/operator — plain <Esc>'s normal-mode cancel still works.
+vim.keymap.set('n', '<Esc>', '<Cmd>nohlsearch<CR>', { desc = 'Clear search highlight' })
 vim.keymap.set({ 'n', 'v' }, '<Space>', '<Nop>')                                    -- space with no following letter has no effect on normal and visual mode
 -- With wrap on, move by screen line so j/k step through wrapped rows one at a time.
 -- The v:count guard keeps {count}j/k (and relativenumber jumps like 5k) on real lines.
@@ -373,6 +375,58 @@ vim.keymap.set('n', '<C-g>', "3<C-w>_", { desc = 'Maximize current window' })
 -- comment toggle (Ctrl+/ needs CSI-u in wezterm to be distinct from <CR>/<BS>)
 vim.keymap.set('n', '<C-/>', 'gcc', { remap = true, desc = 'Toggle comment line' })
 vim.keymap.set('x', '<C-/>', 'gc', { remap = true, desc = 'Toggle comment selection' })
+
+-- Language-aware <leader>c (code) runners. A project type is recognised by a
+-- root marker found upward from the cwd; the shared subcommand letters then run
+-- that language's command. The same letter means different things per language
+-- (cb = `zig build` in a zig project), resolved at keypress time. Add a language
+-- by adding a table here — no other wiring needed.
+local code_runners = {
+  zig = {
+    root = { 'build.zig', 'build.zig.zon' },
+    cmds = {
+      b = { cmd = 'zig build',      desc = 'zig build' },
+      r = { cmd = 'zig build run',  desc = 'zig build run' },
+      t = { cmd = 'zig build test', desc = 'zig build test' },
+    },
+  },
+}
+
+-- Run a shell command in a bottom pane: a native wezterm split when hosted in
+-- wezterm (mirrors <leader>wt), otherwise an nvim :terminal split. Either way
+-- the output stays open to read. cwd is the resolved project root.
+local function run_in_pane(cmd, cwd)
+  if vim.env.WEZTERM_PANE then
+    vim.fn.jobstart({ 'wezterm', 'cli', 'split-pane', '--bottom', '--cwd', cwd,
+      '--', 'pwsh', '-NoLogo', '-NoExit', '-Command', cmd }, { detach = true })
+  else
+    vim.cmd('botright split | lcd ' .. vim.fn.fnameescape(cwd) .. ' | terminal ' .. cmd)
+  end
+end
+
+-- Bind every subcommand letter used by any runner once. The handler resolves the
+-- current project from cwd at keypress time and runs that language's command.
+local code_keys = {}
+for _, spec in pairs(code_runners) do
+  for key in pairs(spec.cmds) do code_keys[key] = true end
+end
+for key in pairs(code_keys) do
+  vim.keymap.set('n', '<leader>c' .. key, function()
+    local cwd = vim.fn.getcwd()
+    for _, spec in pairs(code_runners) do
+      local root = vim.fs.root(cwd, spec.root)
+      local entry = root and spec.cmds[key]
+      if entry then
+        vim.cmd('silent! wall') -- write all buffers before building/running
+        run_in_pane(entry.cmd, root)
+        return
+      end
+    end
+    vim.notify('No <leader>c' .. key .. ' runner for this project (' .. cwd .. ')',
+      vim.log.levels.WARN)
+  end, { desc = 'code: run ' .. key })
+end
+
 -- file explorer
 vim.keymap.set('n', '<leader>e', '<Cmd>Oil<CR>', { desc = 'Open file explorer (oil)' })
 
@@ -397,6 +451,10 @@ vim.keymap.set('n', '<leader>gg', function()
     style = 'minimal',
     border = 'rounded',
   })
+  -- The global t-mode <Esc> map (-> <C-\><C-N>) would drop us to normal mode in
+  -- this terminal instead of reaching lazygit, which uses <Esc> as its own
+  -- back/cancel key. Override it buffer-locally so <Esc> passes through to lazygit.
+  vim.keymap.set('t', '<Esc>', '<Esc>', { buffer = buf, desc = 'Pass <Esc> to lazygit' })
   vim.fn.jobstart('lazygit', {
     term = true,
     on_exit = function()
@@ -514,6 +572,56 @@ vim.diagnostic.config({
     true,
     reverse = true
   }
+})
+
+-- COMMENT KEYWORDS (NOTE: / TODO: / FIXME:) highlighting — comments only.
+-- Plugin-free (no todo-comments.nvim): pure matchadd. matchadd has no notion of
+-- "comment", so to scope it we anchor each pattern to the buffer's comment leader
+-- (the part of &commentstring before %s, e.g. '--', '#', '//') and require a
+-- trailing ':'. The leader is buffer-local and matchadd is window-local, so we
+-- rebuild the matches on every buffer/window/filetype enter, first deleting the
+-- ones we previously added (tracked in a window var). \C forces case sensitivity
+-- so only ALL-CAPS keywords match; priority 200 beats treesitter's default 100 so
+-- the keyword shows through the comment treesitter already colored.
+local todo_keywords = {
+  { kw = 'NOTE',  group = 'TodoNote' },  -- green,       non-intrusive
+  { kw = 'TODO',  group = 'TodoTodo' },  -- yellow,      standard
+  { kw = 'FIXME', group = 'TodoFixme' }, -- red/magenta, intrusive
+}
+
+local function set_todo_highlights()
+  vim.api.nvim_set_hl(0, 'TodoNote',  { fg = '#9ece6a' })              -- green  (calm)
+  vim.api.nvim_set_hl(0, 'TodoTodo',  { fg = '#e0af68', bold = true }) -- yellow (standard)
+  vim.api.nvim_set_hl(0, 'TodoFixme', { fg = '#f7768e', bold = true }) -- red    (loud)
+end
+set_todo_highlights()
+-- Re-assert after a colorscheme load, which clears any custom highlight groups.
+vim.api.nvim_create_autocmd('ColorScheme', { callback = set_todo_highlights })
+
+local function refresh_todo_matches()
+  -- Drop the matches we added on a previous visit to this window.
+  for _, id in ipairs(vim.w.todo_match_ids or {}) do pcall(vim.fn.matchdelete, id) end
+  vim.w.todo_match_ids = {}
+
+  -- Comment leader = the text before %s in 'commentstring'. No commentstring
+  -- (e.g. plain text buffers) -> nothing to anchor to, so skip.
+  local leader = (vim.bo.commentstring or ''):match('^(.-)%s*%%s')
+  if not leader or leader == '' then return end
+  leader = vim.fn.escape(leader, [[\/.*$^~[]]) -- escape regex metachars in the leader
+
+  local ids = {}
+  for _, k in ipairs(todo_keywords) do
+    -- \C  leader  .\{-} (lazy, allows code before the comment)  \zs (highlight
+    -- starts here)  \<KW\>  \ze: (the required colon, kept uncolored).
+    local pat = [[\C]] .. leader .. [[.\{-}\zs\<]] .. k.kw .. [[\>\ze:]]
+    local id = vim.fn.matchadd(k.group, pat, 200)
+    if id ~= -1 then table.insert(ids, id) end
+  end
+  vim.w.todo_match_ids = ids
+end
+
+vim.api.nvim_create_autocmd({ 'BufWinEnter', 'WinEnter', 'FileType' }, {
+  callback = refresh_todo_matches,
 })
 
 -- SETUP NVIM-TREESITTER
