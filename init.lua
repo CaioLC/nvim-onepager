@@ -286,7 +286,12 @@ require("lazy").setup({
       'MeanderingProgrammer/render-markdown.nvim',
       dependencies = { 'nvim-treesitter/nvim-treesitter', 'nvim-tree/nvim-web-devicons' },
       ft = { 'markdown' },
-      opts = {},
+      -- Inline `code` spans: render with orange text on no background instead of
+      -- the default blue-on-blue box. (Terminals can't size individual cells, so
+      -- there's no "smaller font" option.)
+      opts = {
+        code = { highlight_inline = 'RenderMarkdownCodeInline' },
+      },
       keys = {
         { '<leader>tm', '<cmd>RenderMarkdown toggle<CR>', desc = 'Toggle markdown render' },
       },
@@ -598,6 +603,20 @@ end
 set_todo_highlights()
 -- Re-assert after a colorscheme load, which clears any custom highlight groups.
 vim.api.nvim_create_autocmd('ColorScheme', { callback = set_todo_highlights })
+
+-- Inline markdown `code` spans: orange text, no background. Two layers
+-- paint these: the treesitter capture (@markup.raw.markdown_inline -- tokyonight's
+-- blue box) and render-markdown.nvim's extmark (RenderMarkdownCodeInline). bg=NONE
+-- alone only makes the extmark transparent, letting the treesitter blue bleed
+-- through, so we override BOTH. Re-asserted on ColorScheme like the todo groups.
+local function set_markdown_highlights()
+  local inline = { fg = '#ff9e64', bg = 'NONE' }
+  vim.api.nvim_set_hl(0, 'RenderMarkdownCodeInline', inline)
+  vim.api.nvim_set_hl(0, '@markup.raw.markdown_inline', inline)
+  vim.api.nvim_set_hl(0, '@markup.raw', inline)
+end
+set_markdown_highlights()
+vim.api.nvim_create_autocmd('ColorScheme', { callback = set_markdown_highlights })
 
 local function refresh_todo_matches()
   -- Drop the matches we added on a previous visit to this window.
