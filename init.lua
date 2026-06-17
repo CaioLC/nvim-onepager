@@ -399,7 +399,7 @@ local code_runners = {
 local function run_in_pane(cmd, cwd)
   if vim.env.WEZTERM_PANE then
     vim.fn.jobstart({ 'wezterm', 'cli', 'split-pane', '--bottom', '--cwd', cwd,
-      '--', 'pwsh', '-NoLogo', '-NoExit', '-Command', cmd }, { detach = true })
+      '--', 'powershell.exe', '-NoLogo', '-NoExit', '-Command', cmd }, { detach = true })
   else
     vim.cmd('botright split | lcd ' .. vim.fn.fnameescape(cwd) .. ' | terminal ' .. cmd)
   end
