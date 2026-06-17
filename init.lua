@@ -522,6 +522,13 @@ vim.lsp.config['wgsl-analyzer'] = {
   filetypes = { 'wgsl' },
 }
 vim.lsp.enable({ 'luals', 'pyrefly', 'zls', 'wgsl-analyzer' })
+
+-- pyrefly resolves via PATH from your active conda env. If it's missing and you're
+-- doing Python work, install it into the activated env: pip install pyrefly
+if vim.fn.executable('pyrefly') == 0 then
+  vim.notify('pyrefly not found. If working with Python, install it in your '
+    .. 'activated conda env: pip install pyrefly', vim.log.levels.WARN)
+end
 -- activate completion
 -- Use CTRL-Y to select an item. |complete_CTRL-Y|
 vim.opt.completeopt = 'menuone,noselect,popup'
