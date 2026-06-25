@@ -324,15 +324,15 @@ vim.o.tabstop = 2
 vim.o.shiftwidth = 2
 vim.o.expandtab = true
 vim.o.termguicolors = true
-vim.o.linebreak = true                                              -- wrap at word boundaries, not mid-word
+vim.o.linebreak = true -- wrap at word boundaries, not mid-word
 require('lualine').setup({
   sections = {
     lualine_b = { 'branch', 'diagnostics' },
     lualine_c = {
       {
         'filename',
-        path = 1,                       -- relative path (keeps symbols/modified flags)
-        fmt = function(str)             -- trim to file + 2 parent dirs, never above root
+        path = 1,           -- relative path (keeps symbols/modified flags)
+        fmt = function(str) -- trim to file + 2 parent dirs, never above root
           if not str or str == '' then return str end
           local parts = vim.split(str:gsub('\\', '/'), '/', { trimempty = true })
           local n = #parts
@@ -351,10 +351,11 @@ vim.keymap.set('n', '<leader>L', ':Lazy<CR>', { desc = 'Lazy.nvim UI' })        
 -- <Cmd> (not ':...<CR>') so it runs without entering command-line mode and without
 -- swallowing a pending count/operator — plain <Esc>'s normal-mode cancel still works.
 vim.keymap.set('n', '<Esc>', '<Cmd>nohlsearch<CR>', { desc = 'Clear search highlight' })
-vim.keymap.set({ 'n', 'v' }, '<Space>', '<Nop>')                                    -- space with no following letter has no effect on normal and visual mode
+vim.keymap.set({ 'n', 'v' }, '<Space>', '<Nop>') -- space with no following letter has no effect on normal and visual mode
 -- With wrap on, move by screen line so j/k step through wrapped rows one at a time.
 -- The v:count guard keeps {count}j/k (and relativenumber jumps like 5k) on real lines.
-vim.keymap.set({ 'n', 'v' }, 'j', "v:count == 0 ? 'gj' : 'j'", { expr = true, silent = true, desc = 'Down by screen line' })
+vim.keymap.set({ 'n', 'v' }, 'j', "v:count == 0 ? 'gj' : 'j'",
+  { expr = true, silent = true, desc = 'Down by screen line' })
 vim.keymap.set({ 'n', 'v' }, 'k', "v:count == 0 ? 'gk' : 'k'", { expr = true, silent = true, desc = 'Up by screen line' })
 -- window
 vim.keymap.set('n', '<leader>ws', '<C-w>s', { desc = 'Split window horizontal' })
@@ -391,8 +392,8 @@ local code_runners = {
   zig = {
     root = { 'build.zig', 'build.zig.zon' },
     cmds = {
-      b = { cmd = 'zig build',      desc = 'zig build' },
-      r = { cmd = 'zig build run',  desc = 'zig build run' },
+      b = { cmd = 'zig build', desc = 'zig build' },
+      r = { cmd = 'zig build run', desc = 'zig build run' },
       t = { cmd = 'zig build test', desc = 'zig build test' },
     },
   },
@@ -530,10 +531,10 @@ vim.lsp.enable({ 'luals', 'pyrefly', 'zls', 'wgsl-analyzer' })
 
 -- pyrefly resolves via PATH from your active conda env. If it's missing and you're
 -- doing Python work, install it into the activated env: pip install pyrefly
-if vim.fn.executable('pyrefly') == 0 then
-  vim.notify('pyrefly not found. If working with Python, install it in your '
-    .. 'activated conda env: pip install pyrefly', vim.log.levels.WARN)
-end
+-- if vim.fn.executable('pyrefly') == 0 then
+--   vim.notify('pyrefly not found. If working with Python, install it in your '
+--     .. 'activated conda env: pip install pyrefly', vim.log.levels.WARN)
+-- end
 -- activate completion
 -- Use CTRL-Y to select an item. |complete_CTRL-Y|
 vim.opt.completeopt = 'menuone,noselect,popup'
@@ -603,8 +604,8 @@ local todo_keywords = {
 }
 
 local function set_todo_highlights()
-  vim.api.nvim_set_hl(0, 'TodoNote',  { fg = '#9ece6a' })              -- green  (calm)
-  vim.api.nvim_set_hl(0, 'TodoTodo',  { fg = '#e0af68', bold = true }) -- yellow (standard)
+  vim.api.nvim_set_hl(0, 'TodoNote', { fg = '#9ece6a' })               -- green  (calm)
+  vim.api.nvim_set_hl(0, 'TodoTodo', { fg = '#e0af68', bold = true })  -- yellow (standard)
   vim.api.nvim_set_hl(0, 'TodoFixme', { fg = '#f7768e', bold = true }) -- red    (loud)
 end
 set_todo_highlights()
@@ -710,10 +711,14 @@ local function molten_cell_range()
   local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
   local first, last = 1, #lines
   for i = cur, 1, -1 do
-    if lines[i]:match('^#%s*%%%%') then first = i + 1; break end
+    if lines[i]:match('^#%s*%%%%') then
+      first = i + 1; break
+    end
   end
   for i = cur + 1, #lines do
-    if lines[i]:match('^#%s*%%%%') then last = i - 1; break end
+    if lines[i]:match('^#%s*%%%%') then
+      last = i - 1; break
+    end
   end
   return first, last
 end
@@ -765,7 +770,7 @@ local function molten_kill()
   -- raw exec_sync in pcall was capturing its (ok, stdout, stderr) boolean, not the id.
   local wok, wez = pcall(require, 'wezterm')
   local dir = ({ right = 'Right', left = 'Left', top = 'Up', bottom = 'Down' })
-    [vim.g.molten_split_direction or 'right'] or 'Right'
+      [vim.g.molten_split_direction or 'right'] or 'Right'
   -- No explicit pane arg: wezterm infers it from $WEZTERM_PANE (inherited by the
   -- subprocess), so the lookup is relative to nvim's own pane. Passing the id would
   -- feed a number into vim.system, which only accepts string args.
@@ -777,19 +782,22 @@ local function molten_kill()
 end
 
 -- Jupyter / Molten keymaps  (prefix: <leader>j)
-vim.keymap.set('n', '<leader>ji', ':MoltenInit<CR>',                  { silent = true, desc = 'Jupyter: init kernel' })
-vim.keymap.set('n', '<leader>jx', ':MoltenInterrupt<CR>',             { silent = true, desc = 'Jupyter: interrupt (stop running cell)' })
-vim.keymap.set('n', '<leader>jR', ':MoltenRestart!<CR>',              { silent = true, desc = 'Jupyter: restart kernel' })
-vim.keymap.set('n', '<leader>jk', molten_list_kernels,               { silent = true, desc = 'Jupyter: list running kernels' })
-vim.keymap.set('n', '<leader>jK', molten_kill,                       { silent = true, desc = 'Jupyter: kill kernel + image pane (this buffer)' })
-vim.keymap.set('n', '<leader>jd', ':MoltenDelete<CR>',                { silent = true, desc = 'Jupyter: delete cell output' })
-vim.keymap.set('n', '<leader>jh', ':MoltenHideOutput<CR>',            { silent = true, desc = 'Jupyter: hide output' })
-vim.keymap.set('n', '<leader>js', ':noautocmd MoltenEnterOutput<CR>', { silent = true, desc = 'Jupyter: show / enter output' })
-vim.keymap.set('n', '<leader>jl', ':MoltenEvaluateLine<CR>',          { silent = true, desc = 'Jupyter: run line' })
+vim.keymap.set('n', '<leader>ji', ':MoltenInit<CR>', { silent = true, desc = 'Jupyter: init kernel' })
+vim.keymap.set('n', '<leader>jx', ':MoltenInterrupt<CR>',
+  { silent = true, desc = 'Jupyter: interrupt (stop running cell)' })
+vim.keymap.set('n', '<leader>jR', ':MoltenRestart!<CR>', { silent = true, desc = 'Jupyter: restart kernel' })
+vim.keymap.set('n', '<leader>jk', molten_list_kernels, { silent = true, desc = 'Jupyter: list running kernels' })
+vim.keymap.set('n', '<leader>jK', molten_kill,
+  { silent = true, desc = 'Jupyter: kill kernel + image pane (this buffer)' })
+vim.keymap.set('n', '<leader>jd', ':MoltenDelete<CR>', { silent = true, desc = 'Jupyter: delete cell output' })
+vim.keymap.set('n', '<leader>jh', ':MoltenHideOutput<CR>', { silent = true, desc = 'Jupyter: hide output' })
+vim.keymap.set('n', '<leader>js', ':noautocmd MoltenEnterOutput<CR>',
+  { silent = true, desc = 'Jupyter: show / enter output' })
+vim.keymap.set('n', '<leader>jl', ':MoltenEvaluateLine<CR>', { silent = true, desc = 'Jupyter: run line' })
 vim.keymap.set('v', '<leader>jv', ':<C-u>MoltenEvaluateVisual<CR>gv', { silent = true, desc = 'Jupyter: run selection' })
-vim.keymap.set('n', '<leader>jr', ':MoltenReevaluateCell<CR>',        { silent = true, desc = 'Jupyter: re-evaluate cell' })
-vim.keymap.set('n', '<leader>jc', molten_run_cell,                    { silent = true, desc = 'Jupyter: run # %% cell' })
-vim.keymap.set('n', '<leader>jn', molten_run_cell_and_next,           { silent = true, desc = 'Jupyter: run cell + move to next' })
+vim.keymap.set('n', '<leader>jr', ':MoltenReevaluateCell<CR>', { silent = true, desc = 'Jupyter: re-evaluate cell' })
+vim.keymap.set('n', '<leader>jc', molten_run_cell, { silent = true, desc = 'Jupyter: run # %% cell' })
+vim.keymap.set('n', '<leader>jn', molten_run_cell_and_next, { silent = true, desc = 'Jupyter: run cell + move to next' })
 
 -- VSCode-style cell shortcuts, python buffers only. Mapped in normal AND insert mode
 -- so you can run a cell without leaving insert; the function rhs inserts nothing and
