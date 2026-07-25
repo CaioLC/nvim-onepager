@@ -1,0 +1,40 @@
+# =============================================================================
+# lazygit config — kept in this repo (one-pager style) and passed explicitly to
+# lazygit via `--use-config-file` from init.lua's <leader>gg mapping, so no
+# per-machine config-dir setup is needed for the in-nvim panel.
+#
+# To theme lazygit launched standalone from a shell, point its default config
+# path at this file. Preferred (Linux, matches the init.lua symlink pattern):
+#   ln -sf ~/projects/nvim-onepager/lazygit.yml ~/.config/lazygit/config.yml
+# Or, without a symlink, via the LG_CONFIG_FILE env var (Windows PowerShell $PROFILE):
+#   $env:LG_CONFIG_FILE = "$env:USERPROFILE\AppData\Local\nvim\lazygit.yml"
+#
+# Theme: tokyonight (night) — matches the nvim colorscheme (init.lua). Replaces
+# lazygit's default bright-green accent with tokyonight blue.
+# =============================================================================
+gui:
+  theme:
+    activeBorderColor:
+      - '#7aa2f7' # blue — the panel accent (was the default green)
+      - bold
+    inactiveBorderColor:
+      - '#565f89' # muted comment grey
+    searchingActiveBorderColor:
+      - '#e0af68' # yellow
+      - bold
+    optionsTextColor:
+      - '#7aa2f7'
+    selectedLineBgColor:
+      - '#283457' # tokyonight visual-selection background
+    cherryPickedCommitFgColor:
+      - '#7aa2f7'
+    cherryPickedCommitBgColor:
+      - '#283457'
+    markedBaseCommitFgColor:
+      - '#e0af68'
+    markedBaseCommitBgColor:
+      - '#283457'
+    unstagedChangesColor:
+      - '#f7768e' # red
+    defaultFgColor:
+      - '#c0caf5' # tokyonight foreground

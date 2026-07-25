@@ -9,8 +9,15 @@
 --                              when not in a wezterm session; molten image
 --                              rendering on Windows degrades without it)
 --
--- Git UI (floating panel via <leader>gg)
+-- Git UI (floating panel via <leader>gg; themed by repo-local lazygit.yml)
 --   lazygit                -> winget install JesseDuffield.lazygit
+--                             The <leader>gg panel passes lazygit.yml explicitly.
+--                             For standalone `lazygit` in a shell, symlink it onto
+--                             lazygit's default config path (Linux):
+--                               ln -sf .../lazygit.yml ~/.config/lazygit/config.yml
+--                             or on Windows set LG_CONFIG_FILE (PowerShell $PROFILE):
+--                               $env:LG_CONFIG_FILE =
+--                                 "$env:USERPROFILE\AppData\Local\nvim\lazygit.yml"
 --
 -- Tree-sitter parser build chain
 --   LLVM (clang)           -> winget install LLVM.LLVM
@@ -457,7 +464,20 @@ vim.keymap.set('n', '<leader>gg', function()
   -- this terminal instead of reaching lazygit, which uses <Esc> as its own
   -- back/cancel key. Override it buffer-locally so <Esc> passes through to lazygit.
   vim.keymap.set('t', '<Esc>', '<Esc>', { buffer = buf, desc = 'Pass <Esc> to lazygit' })
-  vim.fn.jobstart('lazygit', {
+  -- Use the repo-local lazygit.yml (tokyonight theme) so the accent matches nvim
+  -- without any per-machine lazygit config-dir setup. Resolve it next to this
+  -- init.lua (via $MYVIMRC) rather than stdpath('config'): those differ when the
+  -- repo is a plain checkout instead of being symlinked into the config dir, and
+  -- a bad --use-config-file path makes lazygit error out and close instantly.
+  local cmd = { 'lazygit' }
+  -- fs_realpath follows the symlink so we land in the repo (where lazygit.yml is),
+  -- not in the config dir the symlink points from.
+  local init_path = vim.uv.fs_realpath(vim.env.MYVIMRC) or vim.env.MYVIMRC
+  local lazygit_config = vim.fs.joinpath(vim.fs.dirname(init_path), 'lazygit.yml')
+  if vim.uv.fs_stat(lazygit_config) then
+    vim.list_extend(cmd, { '--use-config-file', lazygit_config })
+  end
+  vim.fn.jobstart(cmd, {
     term = true,
     on_exit = function()
       if vim.api.nvim_win_is_valid(win) then
