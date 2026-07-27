@@ -570,7 +570,81 @@ vim.api.nvim_create_autocmd('LspAttach', {
     vim.keymap.set('i', '<C-h>', vim.lsp.buf.signature_help, { buffer = bufnr })
     vim.keymap.set('n', 'K', vim.lsp.buf.hover, { buffer = bufnr, desc = "Hover documentation" })
     vim.keymap.set('n', 'gd', vim.lsp.buf.definition, { buffer = bufnr, desc = "Go to definition" })
-    vim.keymap.set('n', 'gr', vim.lsp.buf.references, { buffer = bufnr, desc = "Find references" })
+    -- 'gr' mirrors the aerial outline pane (autojump=true): the references land in
+    -- the quickfix list, moving through them live-previews each location in the
+    -- window we came from, and <CR> confirms the previewed spot and closes the list.
+    vim.keymap.set('n', 'gr', function()
+      local origin_win = vim.api.nvim_get_current_win()
+      -- Snapshot where we started so a cancel (anything but <CR>) can restore it;
+      -- live preview drags origin_win across files, which is jarring to abandon.
+      local origin_buf = vim.api.nvim_win_get_buf(origin_win)
+      local origin_view = vim.api.nvim_win_call(origin_win, vim.fn.winsaveview)
+      vim.lsp.buf.references(nil, {
+        on_list = function(list)
+          vim.fn.setqflist({}, ' ', list)
+          vim.cmd('copen')
+          local qf_buf = vim.api.nvim_get_current_buf()
+          local confirmed = false
+          local ns = vim.api.nvim_create_namespace('GrReferencesHl')
+          local hl_buf -- buffer the last highlight was placed in, so we can clear it
+
+          local function clear_hl()
+            if hl_buf and vim.api.nvim_buf_is_valid(hl_buf) then
+              vim.api.nvim_buf_clear_namespace(hl_buf, ns, 0, -1)
+            end
+            hl_buf = nil
+          end
+
+          -- Jump origin_win to the entry under the cursor without leaving the list,
+          -- and highlight the exact reference span (lnum/col..end_lnum/end_col).
+          local function preview()
+            if not vim.api.nvim_win_is_valid(origin_win) then return end
+            local entry = vim.fn.getqflist()[vim.fn.line('.')]
+            if not entry or entry.valid == 0 or entry.bufnr == 0 then return end
+            vim.fn.bufload(entry.bufnr)
+            vim.api.nvim_win_set_buf(origin_win, entry.bufnr)
+            vim.api.nvim_win_set_cursor(origin_win, { entry.lnum, math.max((entry.col or 1) - 1, 0) })
+            vim.api.nvim_win_call(origin_win, function() vim.cmd('normal! zz') end)
+
+            clear_hl()
+            local s = { entry.lnum - 1, math.max((entry.col or 1) - 1, 0) }
+            local end_lnum = (entry.end_lnum ~= 0 and entry.end_lnum or entry.lnum)
+            local end_col = (entry.end_col ~= 0 and entry.end_col or (entry.col or 1))
+            vim.hl.range(entry.bufnr, ns, 'IncSearch', s, { end_lnum - 1, end_col - 1 })
+            hl_buf = entry.bufnr
+          end
+
+          -- Put origin_win back to the pre-'gr' buffer and view.
+          local function restore()
+            if not vim.api.nvim_win_is_valid(origin_win) or not vim.api.nvim_buf_is_valid(origin_buf) then return end
+            vim.api.nvim_win_set_buf(origin_win, origin_buf)
+            vim.api.nvim_win_call(origin_win, function() vim.fn.winrestview(origin_view) end)
+          end
+
+          local grp = vim.api.nvim_create_augroup('GrReferencesPreview', { clear = true })
+          -- Live preview as the cursor moves through the list (the autojump part).
+          vim.api.nvim_create_autocmd('CursorMoved', { group = grp, buffer = qf_buf, callback = preview })
+          -- Closing the list any other way (q, :cclose, switching windows) restores.
+          vim.api.nvim_create_autocmd('BufWinLeave', {
+            group = grp,
+            buffer = qf_buf,
+            callback = function() if not confirmed then restore() end end,
+          })
+
+          -- <CR>: confirm the previewed location, close the list, land in the buffer.
+          vim.keymap.set('n', '<CR>', function()
+            confirmed = true
+            preview()
+            vim.cmd('cclose')
+            if vim.api.nvim_win_is_valid(origin_win) then
+              vim.api.nvim_set_current_win(origin_win)
+            end
+          end, { buffer = qf_buf, nowait = true, desc = 'Jump to reference and close' })
+
+          preview() -- preview the first entry right away
+        end,
+      })
+    end, { buffer = bufnr, desc = "Find references" })
     vim.keymap.set('n', '<leader>ca', vim.lsp.buf.code_action, { buffer = bufnr, desc = "Code action" })
     vim.keymap.set('n', 'rn', vim.lsp.buf.rename, { buffer = bufnr, desc = "Rename" })
   end,
