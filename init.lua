@@ -521,6 +521,90 @@ vim.keymap.set('n', '<leader>fg', t_builtin.live_grep, { desc = 'Telescope live 
 vim.keymap.set('n', '<leader>fb', t_builtin.buffers, { desc = 'Telescope buffers' })
 vim.keymap.set('n', '<leader>fh', t_builtin.help_tags, { desc = 'Telescope help tags' })
 
+-- <leader>fc: searchable cheat-sheet of THIS config's own actions, so you can find a
+-- mapping you forgot by fuzzy-searching its description ("jupyter", "window", ...).
+-- Built live from the leader keymaps (global + current buffer) and user commands, so
+-- it never drifts from init.lua -- give a mapping a `desc` and it shows up here for
+-- free. <CR> runs a normal-mode map; for a command it drops ':Cmd ' onto the cmdline
+-- so you review before executing; visual-mode maps just close.
+local function find_custom_functions()
+  local pickers      = require('telescope.pickers')
+  local finders      = require('telescope.finders')
+  local conf         = require('telescope.config').values
+  local actions      = require('telescope.actions')
+  local action_state = require('telescope.actions.state')
+
+  local items, seen = {}, {}
+  local function harvest(maps)
+    for _, m in ipairs(maps) do
+      -- Leader is <Space>, so nvim stores these lhs with a leading space; a non-empty
+      -- desc is what every mapping in this config carries -- together that's "mine".
+      if m.desc and m.desc ~= '' and m.lhs:sub(1, 1) == ' ' and not seen[m.mode .. m.lhs] then
+        seen[m.mode .. m.lhs] = true
+        local keys = m.lhs
+        items[#items + 1] = {
+          sort    = '1' .. m.lhs,
+          display = string.format('[%s] %-22s %s', m.mode, '<leader>' .. m.lhs:sub(2), m.desc),
+          exec    = m.mode == 'n' and function()
+            vim.api.nvim_feedkeys(
+              vim.api.nvim_replace_termcodes(keys, true, false, true), 'm', false)
+          end or nil,
+        }
+      end
+    end
+  end
+  for _, mode in ipairs({ 'n', 'v' }) do
+    harvest(vim.api.nvim_get_keymap(mode))
+    harvest(vim.api.nvim_buf_get_keymap(0, mode))
+  end
+  -- Commands need a stricter filter: nvim_get_commands() also returns nvim's built-ins
+  -- (:Inspect, :Open, ...) and every plugin command (:Lazy, :Telescope, ...), none of
+  -- which are "mine". The source of truth for my commands is this one-pager itself, so
+  -- scan it for nvim_create_user_command names and keep only those. debug.getinfo gives
+  -- the real file even behind the dofile shim ($MYVIMRC would be the shim).
+  local mine = {}
+  local path = debug.getinfo(1, 'S').source:sub(2)
+  local f = io.open(vim.uv.fs_realpath(path) or path, 'r')
+  if f then
+    for line in f:lines() do
+      local name = line:match("nvim_create_user_command%(%s*['\"]([%w_]+)")
+      if name then mine[name] = true end
+    end
+    f:close()
+  end
+  for name, cmd in pairs(vim.api.nvim_get_commands({})) do
+    if mine[name] then
+      items[#items + 1] = {
+        sort    = '2' .. name,
+        display = string.format('[:] %-22s %s', name, cmd.definition or ''),
+        exec    = function() vim.api.nvim_feedkeys(':' .. name .. ' ', 'n', false) end,
+      }
+    end
+  end
+  table.sort(items, function(a, b) return a.sort < b.sort end)
+
+  pickers.new({}, {
+    prompt_title = 'Custom functions (init.lua)',
+    finder = finders.new_table({
+      results = items,
+      entry_maker = function(it)
+        return { value = it, display = it.display, ordinal = it.display }
+      end,
+    }),
+    sorter = conf.generic_sorter({}),
+    attach_mappings = function(bufnr)
+      actions.select_default:replace(function()
+        local entry = action_state.get_selected_entry()
+        actions.close(bufnr)
+        if entry and entry.value.exec then vim.schedule(entry.value.exec) end
+      end)
+      return true
+    end,
+  }):find()
+end
+vim.keymap.set('n', '<leader>fc', find_custom_functions,
+  { desc = 'Find custom functions (init.lua)' })
+
 
 -- LSP
 vim.lsp.config['luals'] = {
