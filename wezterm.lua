@@ -11,6 +11,10 @@
 local wezterm = require('wezterm')
 local config = wezterm.config_builder()
 
+-- OpenGL renderer: the WebGpu default causes rendering artifacts (stale
+-- pixel fragments on typing/moving/resizing) on some Windows GPU drivers.
+config.front_end = 'OpenGL'
+
 config.default_prog = { 'powershell.exe', '-NoLogo' }
 config.default_cwd = 'C:/projects'
 config.color_scheme = 'Tokyo Night'
