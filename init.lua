@@ -9,15 +9,28 @@
 --                              when not in a wezterm session; molten image
 --                              rendering on Windows degrades without it)
 --
--- Git UI (floating panel via <leader>gg)
+-- Git UI (floating panel via <leader>gg; themed by repo-local lazygit.yml)
 --   lazygit                -> winget install JesseDuffield.lazygit
+--                             The <leader>gg panel passes lazygit.yml explicitly,
+--                             so the in-nvim theme needs no per-machine setup.
+--                             For standalone `lazygit` in a shell, symlink this
+--                             repo's lazygit.yml onto lazygit's default config path
+--                             (path: `lazygit --print-config-dir`).
+--                             Linux:
+--                               ln -sf <repo>/lazygit.yml ~/.config/lazygit/config.yml
+--                             Windows (default dir %LOCALAPPDATA%\lazygit): Developer
+--                             Mode allows symlinks without admin, but PS 5.1's
+--                             New-Item does not pass the unprivileged flag -- use
+--                             Python 3.8+ (os.symlink does) or pwsh 7+:
+--                               python -c "import os;os.symlink(r'<repo>\lazygit.yml',os.path.expandvars(r'%LOCALAPPDATA%\lazygit\config.yml'))"
 --
--- Tree-sitter parser build chain
+-- Tree-sitter parser build chain (checked at startup; nvim warns if any are missing)
 --   LLVM (clang)           -> winget install LLVM.LLVM
 --   MSVC Build Tools       -> winget install Microsoft.VisualStudio.2022.BuildTools
---                             (need VCTools workload + Windows 10 SDK for libc headers)
+--                             --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+--                             (the VCTools workload pulls the MSVC toolset + Windows
+--                              SDK headers/libs clang needs for the msvc target)
 --   tree-sitter CLI        -> winget install tree-sitter.tree-sitter-cli
---                             (auto-installed below if missing)
 --
 -- Telescope backends
 --   ripgrep                -> winget install BurntSushi.ripgrep.MSVC
@@ -55,21 +68,38 @@ vim.g.loaded_netrwPlugin = 1
 -- Single-binary invocation sidesteps the CC-splitting issue Windows had with `zig cc`.
 vim.env.CC = 'clang'
 
--- ENSURE TREE-SITTER CLI (needed by nvim-treesitter main branch to compile parsers)
--- Route through the shell (string form) because winget is a Windows App Execution Alias
--- (reparse point), which vim.fn.system's list form rejects as non-executable.
+-- CHECK PARSER BUILD TOOLCHAIN (warn only). Without clang ($CC), the MSVC/Windows
+-- SDK headers clang targets, and the tree-sitter CLI, no parser compiles. We only
+-- warn rather than auto-install: LLVM and the Build Tools install machine-wide
+-- (admin/UAC) and add PATH entries that only take effect after a restart, so a
+-- blocking startup install is a worse experience than a copy/paste fix. Each entry
+-- below is a full PowerShell command the user can paste to fix that dep. All checks
+-- are cheap and spawn no processes -- executable() is a PATH scan and glob is an
+-- in-process directory read (we probe for a real SDK header, not vswhere).
+local fixes = {}
+if vim.fn.executable('clang') == 0 then
+  -- The LLVM winget package installs clang but does NOT add it to PATH, so pair the
+  -- (idempotent) install with a User-scope PATH append -- no admin needed. Long
+  -- bracket string so the PowerShell quotes/backslashes need no Lua escaping.
+  fixes[#fixes + 1] = [==[winget install LLVM.LLVM; $p=[Environment]::GetEnvironmentVariable('Path','User'); if($p -notlike '*LLVM\bin*'){[Environment]::SetEnvironmentVariable('Path',$p+';C:\Program Files\LLVM\bin','User')}]==]
+end
+-- Probe for a real SDK header (glob a version dir), not just the Include folder:
+-- the folder can exist empty, or appear mid-install, before headers are usable.
+local sdk = vim.fs.joinpath(vim.env['ProgramFiles(x86)'] or 'C:\\Program Files (x86)',
+  'Windows Kits', '10', 'Include', '*', 'ucrt', 'stdio.h')
+if vim.fn.glob(sdk) == '' then
+  fixes[#fixes + 1] = 'winget install Microsoft.VisualStudio.2022.BuildTools '
+    .. '--override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"'
+end
 if vim.fn.executable('tree-sitter') == 0 then
-  vim.notify('tree-sitter CLI not found. Installing via winget...', vim.log.levels.INFO)
-  local out = vim.fn.system(
-    'winget install --id tree-sitter.tree-sitter-cli -e ' ..
-    '--accept-source-agreements --accept-package-agreements'
-  )
-  if vim.v.shell_error ~= 0 then
-    vim.notify('Failed to install tree-sitter CLI:\n' .. out ..
-      '\nInstall manually: winget install tree-sitter.tree-sitter-cli', vim.log.levels.ERROR)
-  else
-    vim.notify('tree-sitter CLI installed. Restart nvim so PATH picks it up.', vim.log.levels.WARN)
-  end
+  fixes[#fixes + 1] = 'winget install tree-sitter.tree-sitter-cli'
+end
+if #fixes > 0 then
+  vim.schedule(function()
+    vim.notify('Parser build toolchain incomplete -- tree-sitter parsers will not '
+      .. 'compile. Paste in PowerShell, then restart your terminal and nvim:\n\n'
+      .. table.concat(fixes, '\n\n'), vim.log.levels.WARN)
+  end)
 end
 
 -- Set leaders BEFORE lazy.setup so plugin specs using `keys = { '<leader>...' }`
@@ -462,7 +492,22 @@ vim.keymap.set('n', '<leader>gg', function()
   -- this terminal instead of reaching lazygit, which uses <Esc> as its own
   -- back/cancel key. Override it buffer-locally so <Esc> passes through to lazygit.
   vim.keymap.set('t', '<Esc>', '<Esc>', { buffer = buf, desc = 'Pass <Esc> to lazygit' })
-  vim.fn.jobstart('lazygit', {
+  -- Use the repo-local lazygit.yml (tokyonight theme) so the accent matches nvim
+  -- without any per-machine lazygit config-dir setup. Locate it next to THIS file
+  -- via the running chunk's own source path, not $MYVIMRC: when nvim's config dir
+  -- is a one-line `dofile` shim (the Windows setup) rather than a symlink into the
+  -- repo, $MYVIMRC is the shim and lazygit.yml isn't beside it. The chunk source
+  -- is always this actual file; fs_realpath additionally follows a symlinked
+  -- config dir into the repo (the Linux setup). A bad --use-config-file path makes
+  -- lazygit error out and close instantly, so only pass it when it exists.
+  local cmd = { 'lazygit' }
+  local this = debug.getinfo(1, 'S').source:sub(2)
+  local lazygit_config = vim.fs.joinpath(
+    vim.fs.dirname(vim.uv.fs_realpath(this) or this), 'lazygit.yml')
+  if vim.uv.fs_stat(lazygit_config) then
+    vim.list_extend(cmd, { '--use-config-file', lazygit_config })
+  end
+  vim.fn.jobstart(cmd, {
     term = true,
     on_exit = function()
       if vim.api.nvim_win_is_valid(win) then
@@ -480,6 +525,90 @@ vim.keymap.set('n', '<leader>ff', t_builtin.find_files, { desc = 'Telescope find
 vim.keymap.set('n', '<leader>fg', t_builtin.live_grep, { desc = 'Telescope live grep' })
 vim.keymap.set('n', '<leader>fb', t_builtin.buffers, { desc = 'Telescope buffers' })
 vim.keymap.set('n', '<leader>fh', t_builtin.help_tags, { desc = 'Telescope help tags' })
+
+-- <leader>fc: searchable cheat-sheet of THIS config's own actions, so you can find a
+-- mapping you forgot by fuzzy-searching its description ("jupyter", "window", ...).
+-- Built live from the leader keymaps (global + current buffer) and user commands, so
+-- it never drifts from init.lua -- give a mapping a `desc` and it shows up here for
+-- free. <CR> runs a normal-mode map; for a command it drops ':Cmd ' onto the cmdline
+-- so you review before executing; visual-mode maps just close.
+local function find_custom_functions()
+  local pickers      = require('telescope.pickers')
+  local finders      = require('telescope.finders')
+  local conf         = require('telescope.config').values
+  local actions      = require('telescope.actions')
+  local action_state = require('telescope.actions.state')
+
+  local items, seen = {}, {}
+  local function harvest(maps)
+    for _, m in ipairs(maps) do
+      -- Leader is <Space>, so nvim stores these lhs with a leading space; a non-empty
+      -- desc is what every mapping in this config carries -- together that's "mine".
+      if m.desc and m.desc ~= '' and m.lhs:sub(1, 1) == ' ' and not seen[m.mode .. m.lhs] then
+        seen[m.mode .. m.lhs] = true
+        local keys = m.lhs
+        items[#items + 1] = {
+          sort    = '1' .. m.lhs,
+          display = string.format('[%s] %-22s %s', m.mode, '<leader>' .. m.lhs:sub(2), m.desc),
+          exec    = m.mode == 'n' and function()
+            vim.api.nvim_feedkeys(
+              vim.api.nvim_replace_termcodes(keys, true, false, true), 'm', false)
+          end or nil,
+        }
+      end
+    end
+  end
+  for _, mode in ipairs({ 'n', 'v' }) do
+    harvest(vim.api.nvim_get_keymap(mode))
+    harvest(vim.api.nvim_buf_get_keymap(0, mode))
+  end
+  -- Commands need a stricter filter: nvim_get_commands() also returns nvim's built-ins
+  -- (:Inspect, :Open, ...) and every plugin command (:Lazy, :Telescope, ...), none of
+  -- which are "mine". The source of truth for my commands is this one-pager itself, so
+  -- scan it for nvim_create_user_command names and keep only those. debug.getinfo gives
+  -- the real file even behind the dofile shim ($MYVIMRC would be the shim).
+  local mine = {}
+  local path = debug.getinfo(1, 'S').source:sub(2)
+  local f = io.open(vim.uv.fs_realpath(path) or path, 'r')
+  if f then
+    for line in f:lines() do
+      local name = line:match("nvim_create_user_command%(%s*['\"]([%w_]+)")
+      if name then mine[name] = true end
+    end
+    f:close()
+  end
+  for name, cmd in pairs(vim.api.nvim_get_commands({})) do
+    if mine[name] then
+      items[#items + 1] = {
+        sort    = '2' .. name,
+        display = string.format('[:] %-22s %s', name, cmd.definition or ''),
+        exec    = function() vim.api.nvim_feedkeys(':' .. name .. ' ', 'n', false) end,
+      }
+    end
+  end
+  table.sort(items, function(a, b) return a.sort < b.sort end)
+
+  pickers.new({}, {
+    prompt_title = 'Custom functions (init.lua)',
+    finder = finders.new_table({
+      results = items,
+      entry_maker = function(it)
+        return { value = it, display = it.display, ordinal = it.display }
+      end,
+    }),
+    sorter = conf.generic_sorter({}),
+    attach_mappings = function(bufnr)
+      actions.select_default:replace(function()
+        local entry = action_state.get_selected_entry()
+        actions.close(bufnr)
+        if entry and entry.value.exec then vim.schedule(entry.value.exec) end
+      end)
+      return true
+    end,
+  }):find()
+end
+vim.keymap.set('n', '<leader>fc', find_custom_functions,
+  { desc = 'Find custom functions (init.lua)' })
 
 
 -- LSP
@@ -555,7 +684,81 @@ vim.api.nvim_create_autocmd('LspAttach', {
     vim.keymap.set('i', '<C-h>', vim.lsp.buf.signature_help, { buffer = bufnr })
     vim.keymap.set('n', 'K', vim.lsp.buf.hover, { buffer = bufnr, desc = "Hover documentation" })
     vim.keymap.set('n', 'gd', vim.lsp.buf.definition, { buffer = bufnr, desc = "Go to definition" })
-    vim.keymap.set('n', 'gr', vim.lsp.buf.references, { buffer = bufnr, desc = "Find references" })
+    -- 'gr' mirrors the aerial outline pane (autojump=true): the references land in
+    -- the quickfix list, moving through them live-previews each location in the
+    -- window we came from, and <CR> confirms the previewed spot and closes the list.
+    vim.keymap.set('n', 'gr', function()
+      local origin_win = vim.api.nvim_get_current_win()
+      -- Snapshot where we started so a cancel (anything but <CR>) can restore it;
+      -- live preview drags origin_win across files, which is jarring to abandon.
+      local origin_buf = vim.api.nvim_win_get_buf(origin_win)
+      local origin_view = vim.api.nvim_win_call(origin_win, vim.fn.winsaveview)
+      vim.lsp.buf.references(nil, {
+        on_list = function(list)
+          vim.fn.setqflist({}, ' ', list)
+          vim.cmd('copen')
+          local qf_buf = vim.api.nvim_get_current_buf()
+          local confirmed = false
+          local ns = vim.api.nvim_create_namespace('GrReferencesHl')
+          local hl_buf -- buffer the last highlight was placed in, so we can clear it
+
+          local function clear_hl()
+            if hl_buf and vim.api.nvim_buf_is_valid(hl_buf) then
+              vim.api.nvim_buf_clear_namespace(hl_buf, ns, 0, -1)
+            end
+            hl_buf = nil
+          end
+
+          -- Jump origin_win to the entry under the cursor without leaving the list,
+          -- and highlight the exact reference span (lnum/col..end_lnum/end_col).
+          local function preview()
+            if not vim.api.nvim_win_is_valid(origin_win) then return end
+            local entry = vim.fn.getqflist()[vim.fn.line('.')]
+            if not entry or entry.valid == 0 or entry.bufnr == 0 then return end
+            vim.fn.bufload(entry.bufnr)
+            vim.api.nvim_win_set_buf(origin_win, entry.bufnr)
+            vim.api.nvim_win_set_cursor(origin_win, { entry.lnum, math.max((entry.col or 1) - 1, 0) })
+            vim.api.nvim_win_call(origin_win, function() vim.cmd('normal! zz') end)
+
+            clear_hl()
+            local s = { entry.lnum - 1, math.max((entry.col or 1) - 1, 0) }
+            local end_lnum = (entry.end_lnum ~= 0 and entry.end_lnum or entry.lnum)
+            local end_col = (entry.end_col ~= 0 and entry.end_col or (entry.col or 1))
+            vim.hl.range(entry.bufnr, ns, 'IncSearch', s, { end_lnum - 1, end_col - 1 })
+            hl_buf = entry.bufnr
+          end
+
+          -- Put origin_win back to the pre-'gr' buffer and view.
+          local function restore()
+            if not vim.api.nvim_win_is_valid(origin_win) or not vim.api.nvim_buf_is_valid(origin_buf) then return end
+            vim.api.nvim_win_set_buf(origin_win, origin_buf)
+            vim.api.nvim_win_call(origin_win, function() vim.fn.winrestview(origin_view) end)
+          end
+
+          local grp = vim.api.nvim_create_augroup('GrReferencesPreview', { clear = true })
+          -- Live preview as the cursor moves through the list (the autojump part).
+          vim.api.nvim_create_autocmd('CursorMoved', { group = grp, buffer = qf_buf, callback = preview })
+          -- Closing the list any other way (q, :cclose, switching windows) restores.
+          vim.api.nvim_create_autocmd('BufWinLeave', {
+            group = grp,
+            buffer = qf_buf,
+            callback = function() if not confirmed then restore() end end,
+          })
+
+          -- <CR>: confirm the previewed location, close the list, land in the buffer.
+          vim.keymap.set('n', '<CR>', function()
+            confirmed = true
+            preview()
+            vim.cmd('cclose')
+            if vim.api.nvim_win_is_valid(origin_win) then
+              vim.api.nvim_set_current_win(origin_win)
+            end
+          end, { buffer = qf_buf, nowait = true, desc = 'Jump to reference and close' })
+
+          preview() -- preview the first entry right away
+        end,
+      })
+    end, { buffer = bufnr, desc = "Find references" })
     vim.keymap.set('n', '<leader>ca', vim.lsp.buf.code_action, { buffer = bufnr, desc = "Code action" })
     vim.keymap.set('n', 'rn', vim.lsp.buf.rename, { buffer = bufnr, desc = "Rename" })
   end,

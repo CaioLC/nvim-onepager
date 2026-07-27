@@ -1,0 +1,43 @@
+# =============================================================================
+# lazygit config — kept in this repo (one-pager style) and passed explicitly to
+# lazygit via `--use-config-file` from init.lua's <leader>gg mapping, so no
+# per-machine config-dir setup is needed for the in-nvim panel.
+#
+# To theme lazygit launched standalone from a shell, symlink this file onto
+# lazygit's default config path (find it with `lazygit --print-config-dir`).
+# Linux:
+#   ln -sf <repo>/lazygit.yml ~/.config/lazygit/config.yml
+# Windows (default dir %LOCALAPPDATA%\lazygit). Developer Mode permits symlinks
+# without admin, but Windows PowerShell 5.1's New-Item can't create them there;
+# use Python 3.8+ (its os.symlink passes the unprivileged flag) or pwsh 7+:
+#   python -c "import os;os.symlink(r'<repo>\lazygit.yml',os.path.expandvars(r'%LOCALAPPDATA%\lazygit\config.yml'))"
+#
+# Theme: tokyonight (night) — matches the nvim colorscheme (init.lua). Replaces
+# lazygit's default bright-green accent with tokyonight blue.
+# =============================================================================
+gui:
+  theme:
+    activeBorderColor:
+      - '#7aa2f7' # blue — the panel accent (was the default green)
+      - bold
+    inactiveBorderColor:
+      - '#565f89' # muted comment grey
+    searchingActiveBorderColor:
+      - '#e0af68' # yellow
+      - bold
+    optionsTextColor:
+      - '#7aa2f7'
+    selectedLineBgColor:
+      - '#283457' # tokyonight visual-selection background
+    cherryPickedCommitFgColor:
+      - '#7aa2f7'
+    cherryPickedCommitBgColor:
+      - '#283457'
+    markedBaseCommitFgColor:
+      - '#e0af68'
+    markedBaseCommitBgColor:
+      - '#283457'
+    unstagedChangesColor:
+      - '#f7768e' # red
+    defaultFgColor:
+      - '#c0caf5' # tokyonight foreground
