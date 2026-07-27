@@ -3,11 +3,14 @@
 # lazygit via `--use-config-file` from init.lua's <leader>gg mapping, so no
 # per-machine config-dir setup is needed for the in-nvim panel.
 #
-# To theme lazygit launched standalone from a shell, point its default config
-# path at this file. Preferred (Linux, matches the init.lua symlink pattern):
-#   ln -sf ~/projects/nvim-onepager/lazygit.yml ~/.config/lazygit/config.yml
-# Or, without a symlink, via the LG_CONFIG_FILE env var (Windows PowerShell $PROFILE):
-#   $env:LG_CONFIG_FILE = "$env:USERPROFILE\AppData\Local\nvim\lazygit.yml"
+# To theme lazygit launched standalone from a shell, symlink this file onto
+# lazygit's default config path (find it with `lazygit --print-config-dir`).
+# Linux:
+#   ln -sf <repo>/lazygit.yml ~/.config/lazygit/config.yml
+# Windows (default dir %LOCALAPPDATA%\lazygit). Developer Mode permits symlinks
+# without admin, but Windows PowerShell 5.1's New-Item can't create them there;
+# use Python 3.8+ (its os.symlink passes the unprivileged flag) or pwsh 7+:
+#   python -c "import os;os.symlink(r'<repo>\lazygit.yml',os.path.expandvars(r'%LOCALAPPDATA%\lazygit\config.yml'))"
 #
 # Theme: tokyonight (night) — matches the nvim colorscheme (init.lua). Replaces
 # lazygit's default bright-green accent with tokyonight blue.

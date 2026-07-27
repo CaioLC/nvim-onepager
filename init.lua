@@ -11,20 +11,26 @@
 --
 -- Git UI (floating panel via <leader>gg; themed by repo-local lazygit.yml)
 --   lazygit                -> winget install JesseDuffield.lazygit
---                             The <leader>gg panel passes lazygit.yml explicitly.
---                             For standalone `lazygit` in a shell, symlink it onto
---                             lazygit's default config path (Linux):
---                               ln -sf .../lazygit.yml ~/.config/lazygit/config.yml
---                             or on Windows set LG_CONFIG_FILE (PowerShell $PROFILE):
---                               $env:LG_CONFIG_FILE =
---                                 "$env:USERPROFILE\AppData\Local\nvim\lazygit.yml"
+--                             The <leader>gg panel passes lazygit.yml explicitly,
+--                             so the in-nvim theme needs no per-machine setup.
+--                             For standalone `lazygit` in a shell, symlink this
+--                             repo's lazygit.yml onto lazygit's default config path
+--                             (path: `lazygit --print-config-dir`).
+--                             Linux:
+--                               ln -sf <repo>/lazygit.yml ~/.config/lazygit/config.yml
+--                             Windows (default dir %LOCALAPPDATA%\lazygit): Developer
+--                             Mode allows symlinks without admin, but PS 5.1's
+--                             New-Item does not pass the unprivileged flag -- use
+--                             Python 3.8+ (os.symlink does) or pwsh 7+:
+--                               python -c "import os;os.symlink(r'<repo>\lazygit.yml',os.path.expandvars(r'%LOCALAPPDATA%\lazygit\config.yml'))"
 --
--- Tree-sitter parser build chain
+-- Tree-sitter parser build chain (checked at startup; nvim warns if any are missing)
 --   LLVM (clang)           -> winget install LLVM.LLVM
 --   MSVC Build Tools       -> winget install Microsoft.VisualStudio.2022.BuildTools
---                             (need VCTools workload + Windows 10 SDK for libc headers)
+--                             --override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+--                             (the VCTools workload pulls the MSVC toolset + Windows
+--                              SDK headers/libs clang needs for the msvc target)
 --   tree-sitter CLI        -> winget install tree-sitter.tree-sitter-cli
---                             (auto-installed below if missing)
 --
 -- Telescope backends
 --   ripgrep                -> winget install BurntSushi.ripgrep.MSVC
@@ -62,21 +68,38 @@ vim.g.loaded_netrwPlugin = 1
 -- Single-binary invocation sidesteps the CC-splitting issue Windows had with `zig cc`.
 vim.env.CC = 'clang'
 
--- ENSURE TREE-SITTER CLI (needed by nvim-treesitter main branch to compile parsers)
--- Route through the shell (string form) because winget is a Windows App Execution Alias
--- (reparse point), which vim.fn.system's list form rejects as non-executable.
+-- CHECK PARSER BUILD TOOLCHAIN (warn only). Without clang ($CC), the MSVC/Windows
+-- SDK headers clang targets, and the tree-sitter CLI, no parser compiles. We only
+-- warn rather than auto-install: LLVM and the Build Tools install machine-wide
+-- (admin/UAC) and add PATH entries that only take effect after a restart, so a
+-- blocking startup install is a worse experience than a copy/paste fix. Each entry
+-- below is a full PowerShell command the user can paste to fix that dep. All checks
+-- are cheap and spawn no processes -- executable() is a PATH scan and glob is an
+-- in-process directory read (we probe for a real SDK header, not vswhere).
+local fixes = {}
+if vim.fn.executable('clang') == 0 then
+  -- The LLVM winget package installs clang but does NOT add it to PATH, so pair the
+  -- (idempotent) install with a User-scope PATH append -- no admin needed. Long
+  -- bracket string so the PowerShell quotes/backslashes need no Lua escaping.
+  fixes[#fixes + 1] = [==[winget install LLVM.LLVM; $p=[Environment]::GetEnvironmentVariable('Path','User'); if($p -notlike '*LLVM\bin*'){[Environment]::SetEnvironmentVariable('Path',$p+';C:\Program Files\LLVM\bin','User')}]==]
+end
+-- Probe for a real SDK header (glob a version dir), not just the Include folder:
+-- the folder can exist empty, or appear mid-install, before headers are usable.
+local sdk = vim.fs.joinpath(vim.env['ProgramFiles(x86)'] or 'C:\\Program Files (x86)',
+  'Windows Kits', '10', 'Include', '*', 'ucrt', 'stdio.h')
+if vim.fn.glob(sdk) == '' then
+  fixes[#fixes + 1] = 'winget install Microsoft.VisualStudio.2022.BuildTools '
+    .. '--override "--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"'
+end
 if vim.fn.executable('tree-sitter') == 0 then
-  vim.notify('tree-sitter CLI not found. Installing via winget...', vim.log.levels.INFO)
-  local out = vim.fn.system(
-    'winget install --id tree-sitter.tree-sitter-cli -e ' ..
-    '--accept-source-agreements --accept-package-agreements'
-  )
-  if vim.v.shell_error ~= 0 then
-    vim.notify('Failed to install tree-sitter CLI:\n' .. out ..
-      '\nInstall manually: winget install tree-sitter.tree-sitter-cli', vim.log.levels.ERROR)
-  else
-    vim.notify('tree-sitter CLI installed. Restart nvim so PATH picks it up.', vim.log.levels.WARN)
-  end
+  fixes[#fixes + 1] = 'winget install tree-sitter.tree-sitter-cli'
+end
+if #fixes > 0 then
+  vim.schedule(function()
+    vim.notify('Parser build toolchain incomplete -- tree-sitter parsers will not '
+      .. 'compile. Paste in PowerShell, then restart your terminal and nvim:\n\n'
+      .. table.concat(fixes, '\n\n'), vim.log.levels.WARN)
+  end)
 end
 
 -- Set leaders BEFORE lazy.setup so plugin specs using `keys = { '<leader>...' }`
@@ -465,15 +488,17 @@ vim.keymap.set('n', '<leader>gg', function()
   -- back/cancel key. Override it buffer-locally so <Esc> passes through to lazygit.
   vim.keymap.set('t', '<Esc>', '<Esc>', { buffer = buf, desc = 'Pass <Esc> to lazygit' })
   -- Use the repo-local lazygit.yml (tokyonight theme) so the accent matches nvim
-  -- without any per-machine lazygit config-dir setup. Resolve it next to this
-  -- init.lua (via $MYVIMRC) rather than stdpath('config'): those differ when the
-  -- repo is a plain checkout instead of being symlinked into the config dir, and
-  -- a bad --use-config-file path makes lazygit error out and close instantly.
+  -- without any per-machine lazygit config-dir setup. Locate it next to THIS file
+  -- via the running chunk's own source path, not $MYVIMRC: when nvim's config dir
+  -- is a one-line `dofile` shim (the Windows setup) rather than a symlink into the
+  -- repo, $MYVIMRC is the shim and lazygit.yml isn't beside it. The chunk source
+  -- is always this actual file; fs_realpath additionally follows a symlinked
+  -- config dir into the repo (the Linux setup). A bad --use-config-file path makes
+  -- lazygit error out and close instantly, so only pass it when it exists.
   local cmd = { 'lazygit' }
-  -- fs_realpath follows the symlink so we land in the repo (where lazygit.yml is),
-  -- not in the config dir the symlink points from.
-  local init_path = vim.uv.fs_realpath(vim.env.MYVIMRC) or vim.env.MYVIMRC
-  local lazygit_config = vim.fs.joinpath(vim.fs.dirname(init_path), 'lazygit.yml')
+  local this = debug.getinfo(1, 'S').source:sub(2)
+  local lazygit_config = vim.fs.joinpath(
+    vim.fs.dirname(vim.uv.fs_realpath(this) or this), 'lazygit.yml')
   if vim.uv.fs_stat(lazygit_config) then
     vim.list_extend(cmd, { '--use-config-file', lazygit_config })
   end
