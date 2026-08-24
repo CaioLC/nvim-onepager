@@ -21,7 +21,7 @@ These are documented at the top of `init.lua`. They must be on PATH for the conf
 - `tree-sitter` CLI — auto-installed via `winget` at startup if missing (init.lua:20-32); required because nvim-treesitter is pinned to the `main` branch, which compiles parsers from source
 - `clang` (LLVM) — used as the C compiler for tree-sitter parser builds via `vim.env.CC = 'clang'` (init.lua:15). Avoids needing MSVC's `cl.exe`. Install via `winget install LLVM.LLVM`; PATH is set by the installer.
 - `zls` — Zig LSP server, also manual install + PATH
-- `conda env 'nvim'` with `pynvim`, `jupyter_client`, `ipykernel` — for molten-nvim. Created at `%USERPROFILE%\.conda\envs\nvim` (via `conda create --prefix ...`). init.lua:10 resolves `$USERPROFILE` at runtime, so this is portable across machines as long as the env lives in that conventional spot.
+- `conda env 'nvim'` with `pynvim`, `jupyterlab`, `neopyter`, `lckr_jupyterlab_variableinspector`, `itables` — hosts JupyterLab for the neopyter notebook workflow (`<leader>jl` launches it). Created at `%USERPROFILE%\.conda\envs\nvim` (via `conda create --prefix ...`). init.lua resolves `$USERPROFILE` at runtime, so this is portable across machines as long as the env lives in that conventional spot.
 
 ## Non-obvious architectural choices
 
@@ -29,11 +29,13 @@ These are documented at the top of `init.lua`. They must be on PATH for the conf
 
 2. **`vim.lsp.config` API (Neovim 0.11+).** LSP servers (luals, pyrefly, zls, wgsl-analyzer) are declared via `vim.lsp.config['name'] = {...}` then activated with `vim.lsp.enable({...})` at init.lua:223. This is the new native API, not `lspconfig.setup{}` — do not migrate it to `nvim-lspconfig` patterns.
 
-3. **CSI-u keyboard encoding** is enabled in WezTerm (wezterm.lua:20-26) so nvim can distinguish `<C-CR>` and `<S-CR>` from plain `<CR>`. The Molten cell-runner keymaps at init.lua:335-342 depend on this. If you break the WezTerm `keys` block, those Ctrl+Enter / Shift+Enter mappings silently stop working.
+3. **CSI-u keyboard encoding** is enabled in WezTerm (wezterm.lua:20-26) so nvim can distinguish `<C-CR>` and `<S-CR>` from plain `<CR>`. The neopyter cell-runner keymaps (Ctrl+Enter / Shift+Enter in `*.ju.py` buffers) depend on this. If you break the WezTerm `keys` block, those mappings silently stop working.
 
 4. **Format-on-save autocmd** at init.lua:243-258 is attached to *every* LSP that advertises `textDocument/formatting`. It applies project-wide — there is no per-filetype opt-out. Adding a new LSP automatically opts it in.
 
 5. **Tree-sitter install happens at top-level scope**, not inside a plugin `config` callback (init.lua:271). This runs on every `init.lua` load. The plugin itself handles deduplication.
+
+6. **Notebooks run in the browser, not in nvim.** Python notebooks are `*.ju.py` files with `# %%` cells; neopyter (direct mode — nvim hosts an RPC server on 127.0.0.1:9001 via websocket.nvim) mirrors them into JupyterLab, where cells execute and outputs render. nvim must be running before JupyterLab starts. There is deliberately no in-editor output rendering — do not add molten-nvim/image.nvim-style inline outputs back.
 
 ## Useful commands inside Neovim
 
@@ -42,7 +44,7 @@ These are documented at the top of `init.lua`. They must be on PATH for the conf
 - `:Lazy sync` / `:Lazy update` — update plugins
 - `:checkhealth` — diagnose provider / plugin / parser issues
 - `:lua require('nvim-treesitter').install({'lang'})` — force-install or rebuild a single parser (use after fixing compiler errors)
-- `:UpdateRemotePlugins` — required after molten-nvim updates so Python remote plugin manifest refreshes
+- `<leader>jl` — launch JupyterLab (browser) from the `nvim` conda env; `:RegisterCondaKernels` — register conda envs (with ipykernel) as Jupyter kernels
 
 ## When something in tree-sitter breaks
 
