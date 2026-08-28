@@ -16,7 +16,15 @@ local config = wezterm.config_builder()
 config.front_end = 'OpenGL'
 
 config.default_prog = { 'powershell.exe', '-NoLogo' }
-config.default_cwd = 'C:/projects'
+-- Default cwd: the projects dir lives on a different drive per machine, so take
+-- the first candidate that exists (glob of a literal path matches only itself).
+-- If none exist, default_cwd stays unset and wezterm falls back to the home dir.
+for _, dir in ipairs({ 'C:/projects', 'A:/projects' }) do
+  if #wezterm.glob(dir) > 0 then
+    config.default_cwd = dir
+    break
+  end
+end
 config.color_scheme = 'Tokyo Night'
 config.hide_tab_bar_if_only_one_tab = true
 config.window_padding = { left = 8, right = 8, top = 4, bottom = 4 }

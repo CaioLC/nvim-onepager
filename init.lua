@@ -3,11 +3,10 @@
 -- Single source of truth for what a fresh machine needs before this config runs.
 -- =============================================================================
 --
--- Terminal emulator (molten image rendering + <leader>wt native panes)
+-- Terminal emulator (<leader>wt / <leader>c runners / <leader>jl native panes)
 --   wezterm                -> winget install wez.wezterm
---                             (optional — <leader>wt falls back to nvim :terminal
---                              when not in a wezterm session; molten image
---                              rendering on Windows degrades without it)
+--                             (optional — the pane helpers fall back to nvim
+--                              :terminal when not in a wezterm session)
 --
 -- Git UI (floating panel via <leader>gg; themed by repo-local lazygit.yml)
 --   lazygit                -> winget install JesseDuffield.lazygit
@@ -42,16 +41,22 @@
 --   zls                    -> manual: https://github.com/zigtools/zls/releases
 --   wgsl-analyzer          -> manual: https://github.com/wgsl-analyzer/wgsl-analyzer/releases
 --
--- Python provider + Jupyter kernels (for molten-nvim)
+-- Python provider + JupyterLab (for neopyter — cells run in a browser tab)
 --   conda env 'nvim' at %USERPROFILE%\.conda\envs\nvim
---     packages: pynvim, jupyter_client, ipykernel
+--     packages: pynvim, jupyterlab, neopyter,
+--               lckr_jupyterlab_variableinspector (live variable/dataframe panel),
+--               itables (sortable/filterable dataframe tables; enable per notebook:
+--               `from itables import init_notebook_mode; init_notebook_mode()`)
 --   each conda env you want as a Jupyter kernel needs `ipykernel` installed;
 --     register them in bulk via :RegisterCondaKernels (defined later)
+--   one-time browser setup: in JupyterLab, open the Neopyter side panel and set
+--     mode=direct, IP 127.0.0.1, port 9001 (persisted in browser localStorage)
 -- =============================================================================
 
--- PYTHON PROVIDER (must come before lazy setup so :UpdateRemotePlugins uses it)
+-- PYTHON PROVIDER
 -- Resolves to %USERPROFILE%\.conda\envs\nvim\python.exe at runtime, so the path
 -- is portable across machines as long as the env lives in that conventional spot.
+-- Doubles as the interpreter <leader>jl launches JupyterLab from.
 vim.g.python3_host_prog = vim.fn.expand('$USERPROFILE') .. '/.conda/envs/nvim/python.exe'
 
 -- Disable unused language providers to silence checkhealth warnings.
@@ -290,23 +295,23 @@ require("lazy").setup({
     },
 
     {
-      "benlubas/molten-nvim",
-      version = "^1.0.0",
-      dependencies = { "willothy/wezterm.nvim" },
-      ft = { "python", "markdown" },
-      init = function()
-        vim.g.molten_image_provider = "wezterm"
-        vim.g.molten_output_win_max_height = 20
-        vim.g.molten_auto_open_output = false
-        vim.g.molten_wrap_output = true
-        vim.g.molten_virt_text_output = true
-        vim.g.molten_virt_lines_off_by_1 = false
-        vim.g.molten_output_show_more = true
-        vim.g.molten_use_border_highlights = true
-        -- use_border_highlights only works when the border is a table, not a
-        -- string preset like "rounded" — molten recolors each side per output state.
-        vim.g.molten_output_win_border = { "╭", "─", "╮", "│", "╯", "─", "╰", "│" }
-      end,
+      -- Edit `*.ju.py` percent-format (# %%) files in nvim; neopyter mirrors the
+      -- buffer into a notebook inside JupyterLab in the browser, where cells run
+      -- and ALL outputs render (plots, itables dataframes, the variable-inspector
+      -- panel) — nothing displays inside nvim. Direct mode: nvim hosts an RPC
+      -- server (websocket.nvim) on remote_address; the neopyter JupyterLab
+      -- extension (pip package in the 'nvim' conda env) connects to it. Start
+      -- nvim first, then JupyterLab (<leader>jl). Cell keymaps live in the
+      -- JUPYTER section below, gated to *.ju.py buffers.
+      "SUSTech-data/neopyter",
+      dependencies = { "AbaoFromCUG/websocket.nvim" }, -- server impl for direct mode
+      lazy = false, -- its attach autocmds must exist before a *.ju.py buffer opens
+      opts = {
+        mode = "direct",
+        remote_address = "127.0.0.1:9001",
+        file_pattern = { "*.ju.*" },
+        highlight = { enable = true }, -- shade # %% separators (uses ts python parser)
+      },
     },
 
     {
@@ -330,20 +335,6 @@ require("lazy").setup({
   -- configure any other settings here. see documentation for detailes.
   -- automatically check for plugin updates
   checker = { enabled = true },
-})
-
--- Force every lazy-loaded plugin onto the runtimepath before :UpdateRemotePlugins
--- runs, so ft/event/cmd-gated plugins (e.g. molten-nvim) get their rplugin/python3
--- commands into the manifest. Without this, the scan only sees eagerly-loaded
--- plugins and remote commands like :MoltenInit silently never register.
-vim.api.nvim_create_autocmd('User', {
-  pattern = { 'LazyInstall', 'LazyUpdate', 'LazySync' },
-  once = true,
-  callback = function()
-    local names = vim.tbl_map(function(p) return p.name end, require('lazy').plugins())
-    require('lazy').load({ plugins = names })
-    vim.cmd('UpdateRemotePlugins')
-  end,
 })
 
 -- CONFIGS
@@ -873,11 +864,10 @@ vim.api.nvim_create_autocmd('FileType', {
 vim.o.foldlevelstart = 99
 
 -- :RegisterCondaKernels — make every conda env that has ipykernel installed visible
--- to molten by registering it as a user-level Jupyter kernel spec. Re-run after
--- creating new envs. Skips 'base' and 'nvim' (the latter is molten's python provider,
--- not a kernel). nb_conda_kernels' auto-detection does NOT work here because molten
--- calls jupyter_client.kernelspec directly, bypassing the traitlets config that
--- nb_conda_kernels hooks into.
+-- to JupyterLab by registering it as a user-level Jupyter kernel spec. Re-run after
+-- creating new envs. Skips 'base' and 'nvim' (the latter hosts JupyterLab itself,
+-- not a kernel). Explicit user-level specs beat nb_conda_kernels auto-detection:
+-- they work in every frontend with zero traitlets config.
 vim.api.nvim_create_user_command('RegisterCondaKernels', function()
   -- Use `conda env list --json` rather than parsing the plaintext output: the
   -- text format is whitespace-delimited and breaks when the env path contains
@@ -888,7 +878,7 @@ $envs = (conda env list --json | ConvertFrom-Json).envs
 foreach ($p in $envs) {
   if ($p -notlike '*\envs\*') { continue }   # skips base (no /envs/ segment)
   $name = Split-Path -Leaf $p
-  if ($name -eq 'nvim') { continue }         # molten's python provider, not a kernel
+  if ($name -eq 'nvim') { continue }         # hosts JupyterLab itself, not a kernel
   $py = Join-Path $p 'python.exe'
   if (-not (Test-Path $py)) { continue }
   & $py -c "import ipykernel" 2>$null
@@ -908,33 +898,16 @@ foreach ($p in $envs) {
   end
 end, { desc = 'Register every conda env (with ipykernel) as a Jupyter kernel spec' })
 
--- MOLTEN (Jupyter) CELL HELPERS
-local function molten_cell_range()
-  local cur = vim.api.nvim_win_get_cursor(0)[1]
-  local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-  local first, last = 1, #lines
-  for i = cur, 1, -1 do
-    if lines[i]:match('^#%s*%%%%') then
-      first = i + 1; break
-    end
-  end
-  for i = cur + 1, #lines do
-    if lines[i]:match('^#%s*%%%%') then
-      last = i - 1; break
-    end
-  end
-  return first, last
-end
+-- JUPYTER (neopyter → JupyterLab in the browser)  (prefix: <leader>j)
+-- Notebooks are `*.ju.py` files with `# %%` cell separators. Neopyter mirrors the
+-- buffer into a paired .ipynb open in JupyterLab and runs cells there; all output
+-- (text, plots, dataframes) renders in the browser tab, nothing inside nvim.
+-- For sortable/filterable dataframe tables, put this in the notebook's first cell:
+--   from itables import init_notebook_mode; init_notebook_mode()
+-- The variable-inspector panel lives in JupyterLab's right sidebar.
 
-local function molten_run_cell()
-  local first, last = molten_cell_range()
-  vim.fn.setpos("'<", { 0, first, 1, 0 })
-  vim.fn.setpos("'>", { 0, last, 2147483647, 0 })
-  vim.cmd('MoltenEvaluateVisual')
-end
-
-local function molten_run_cell_and_next()
-  molten_run_cell()
+-- Move the cursor to the line after the next `# %%` separator; no-op on last cell.
+local function jupyter_next_cell()
   local cur = vim.api.nvim_win_get_cursor(0)[1]
   local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
   for i = cur + 1, #lines do
@@ -945,72 +918,87 @@ local function molten_run_cell_and_next()
   end
 end
 
--- List every running kernel. MoltenRunningKernels(false) returns the global set
--- (pass true for buffer-local only); :MoltenInfo also shows them but mixes in the
--- not-yet-running available kernels, so a plain notify is clearer for "what's live".
-local function molten_list_kernels()
-  local ok, running = pcall(vim.fn.MoltenRunningKernels, false)
-  if not ok or vim.tbl_isempty(running) then
-    vim.notify('Molten: no running kernels', vim.log.levels.INFO)
+-- Launch JupyterLab from the 'nvim' conda env, rooted at the cwd, in a bottom
+-- pane (native wezterm split when hosted in wezterm, else an nvim :terminal
+-- split — mirrors <leader>wt). The pane shows server logs; JupyterLab opens the
+-- browser tab itself. Start order matters in direct mode: nvim must already be
+-- running (it hosts the RPC server the JupyterLab extension connects to).
+local function jupyter_lab_start()
+  local py = vim.g.python3_host_prog
+  if vim.fn.executable(py) == 0 then
+    vim.notify("JupyterLab env not found: " .. py .. "\nCreate it: conda create --prefix "
+      .. "%USERPROFILE%\\.conda\\envs\\nvim python pynvim jupyterlab, then pip install "
+      .. "neopyter lckr_jupyterlab_variableinspector itables", vim.log.levels.ERROR)
     return
   end
-  vim.notify('Molten running kernels:\n  ' .. table.concat(running, '\n  '), vim.log.levels.INFO)
-end
-
--- Kill this buffer's kernel AND close the wezterm pane it rendered images into.
--- With molten_image_provider = "wezterm", MoltenInit splits off a terminal pane
--- (molten_split_direction, default "right") for images; :MoltenDeinit shuts the
--- kernel down and clears the nvim-side output windows, but molten only closes that
--- split on full nvim exit — so close it here by killing the pane in the split dir.
-local function molten_kill()
-  local ok, running = pcall(vim.fn.MoltenRunningKernels, true) -- buffer-local kernels
-  if not ok or vim.tbl_isempty(running) then
-    vim.notify('Molten: no kernel in this buffer', vim.log.levels.INFO)
-    return
-  end
-  -- Locate molten's image pane (the split next to nvim) before deinit. wezterm.nvim's
-  -- get_pane_direction returns the neighbour pane id directly, trimmed — wrapping the
-  -- raw exec_sync in pcall was capturing its (ok, stdout, stderr) boolean, not the id.
-  local wok, wez = pcall(require, 'wezterm')
-  local dir = ({ right = 'Right', left = 'Left', top = 'Up', bottom = 'Down' })
-      [vim.g.molten_split_direction or 'right'] or 'Right'
-  -- No explicit pane arg: wezterm infers it from $WEZTERM_PANE (inherited by the
-  -- subprocess), so the lookup is relative to nvim's own pane. Passing the id would
-  -- feed a number into vim.system, which only accepts string args.
-  local pane_id = wok and wez.get_pane_direction(dir)
-  vim.cmd('MoltenDeinit')
-  if pane_id then
-    wez.exec_sync({ 'cli', 'kill-pane', '--pane-id', tostring(pane_id) })
+  local cwd = vim.fn.getcwd()
+  if vim.env.WEZTERM_PANE then
+    vim.fn.jobstart({ 'wezterm', 'cli', 'split-pane', '--bottom', '--cwd', cwd,
+      '--', py, '-m', 'jupyterlab' }, { detach = true })
+  else
+    vim.cmd('belowright new')
+    vim.fn.jobstart({ py, '-m', 'jupyterlab' }, { term = true, cwd = cwd })
   end
 end
 
--- Jupyter / Molten keymaps  (prefix: <leader>j)
-vim.keymap.set('n', '<leader>ji', ':MoltenInit<CR>', { silent = true, desc = 'Jupyter: init kernel' })
-vim.keymap.set('n', '<leader>jx', ':MoltenInterrupt<CR>',
-  { silent = true, desc = 'Jupyter: interrupt (stop running cell)' })
-vim.keymap.set('n', '<leader>jR', ':MoltenRestart!<CR>', { silent = true, desc = 'Jupyter: restart kernel' })
-vim.keymap.set('n', '<leader>jk', molten_list_kernels, { silent = true, desc = 'Jupyter: list running kernels' })
-vim.keymap.set('n', '<leader>jK', molten_kill,
-  { silent = true, desc = 'Jupyter: kill kernel + image pane (this buffer)' })
-vim.keymap.set('n', '<leader>jd', ':MoltenDelete<CR>', { silent = true, desc = 'Jupyter: delete cell output' })
-vim.keymap.set('n', '<leader>jh', ':MoltenHideOutput<CR>', { silent = true, desc = 'Jupyter: hide output' })
-vim.keymap.set('n', '<leader>js', ':noautocmd MoltenEnterOutput<CR>',
-  { silent = true, desc = 'Jupyter: show / enter output' })
-vim.keymap.set('n', '<leader>jl', ':MoltenEvaluateLine<CR>', { silent = true, desc = 'Jupyter: run line' })
-vim.keymap.set('v', '<leader>jv', ':<C-u>MoltenEvaluateVisual<CR>gv', { silent = true, desc = 'Jupyter: run selection' })
-vim.keymap.set('n', '<leader>jr', ':MoltenReevaluateCell<CR>', { silent = true, desc = 'Jupyter: re-evaluate cell' })
-vim.keymap.set('n', '<leader>jc', molten_run_cell, { silent = true, desc = 'Jupyter: run # %% cell' })
-vim.keymap.set('n', '<leader>jn', molten_run_cell_and_next, { silent = true, desc = 'Jupyter: run cell + move to next' })
+vim.keymap.set('n', '<leader>jl', jupyter_lab_start,
+  { silent = true, desc = 'Jupyter: launch JupyterLab (browser)' })
 
--- VSCode-style cell shortcuts, python buffers only. Mapped in normal AND insert mode
--- so you can run a cell without leaving insert; the function rhs inserts nothing and
--- keeps the current mode (depends on the CSI-u <C-CR>/<S-CR> encoding from wezterm.lua).
+-- Cell keymaps, gated to *.ju.py buffers (the only ones neopyter attaches to).
+-- <C-CR>/<S-CR> are mapped in normal AND insert mode so a cell can run without
+-- leaving insert (depends on the CSI-u encoding from wezterm.lua). Run-and-next
+-- sends the run first, then moves the nvim cursor: neopyter's cursor-sync event
+-- arrives after the run command on the same connection, so the run still targets
+-- the cell the cursor was in.
 vim.api.nvim_create_autocmd('FileType', {
   pattern = 'python',
   callback = function(args)
-    vim.keymap.set({ 'n', 'i' }, '<C-CR>', molten_run_cell,
-      { buffer = args.buf, silent = true, desc = 'Run cell (Ctrl+Enter)' })
-    vim.keymap.set({ 'n', 'i' }, '<S-CR>', molten_run_cell_and_next,
-      { buffer = args.buf, silent = true, desc = 'Run cell + next (Shift+Enter)' })
+    local bufname = vim.api.nvim_buf_get_name(args.buf)
+    if not bufname:match('%.ju%.py$') then return end
+    -- Pre-create the paired .ipynb (minimal empty nbformat 4) if it's missing,
+    -- BEFORE neopyter's attach runs (FileType fires before BufWinEnter). With the
+    -- file on disk, attach takes the "exists" path (open + full sync) and never
+    -- calls the createNew RPC — whose response the Lab extension fails to
+    -- serialize (@msgpack/msgpack "Too deep objects in depth" on the returned
+    -- widget object; neopyter 0.4.0). Path mirrors neopyter's filename_mapper:
+    -- fnamemodify ':r:r:r' + '.ipynb'  (sandbox.ju.py -> sandbox.ipynb).
+    local ipynb = vim.fn.fnamemodify(bufname, ':r:r:r') .. '.ipynb'
+    if not vim.uv.fs_stat(ipynb) then
+      local f = io.open(ipynb, 'w')
+      if f then
+        f:write('{"cells":[],"metadata":{},"nbformat":4,"nbformat_minor":5}\n')
+        f:close()
+      end
+    end
+    local function map(modes, lhs, rhs, desc)
+      vim.keymap.set(modes, lhs, rhs, { buffer = args.buf, silent = true, desc = desc })
+    end
+    local function run_cell_and_next()
+      vim.cmd('Neopyter run current')
+      jupyter_next_cell()
+    end
+    -- Recovery for the attach-order trap: neopyter creates the paired .ipynb only
+    -- while attaching a buffer, and skips that silently if the JupyterLab tab
+    -- isn't connected yet — re-entering the buffer later never retries. Unloading
+    -- the buffer makes neopyter forget it (BufUnload); reopening runs a fresh
+    -- attach, which creates the .ipynb and full-syncs. Use after the Lab tab is up.
+    map('n', '<leader>ji', function()
+      local file = vim.api.nvim_buf_get_name(0)
+      local view = vim.fn.winsaveview()
+      vim.cmd('silent! write')
+      vim.cmd('bdelete')
+      vim.cmd('edit ' .. vim.fn.fnameescape(file))
+      vim.fn.winrestview(view)
+    end, 'Jupyter: re-attach buffer (create/pair .ipynb)')
+    map({ 'n', 'i' }, '<C-CR>', '<Cmd>Neopyter run current<CR>', 'Run cell (Ctrl+Enter)')
+    map({ 'n', 'i' }, '<S-CR>', run_cell_and_next, 'Run cell + next (Shift+Enter)')
+    map('n', '<leader>jc', '<Cmd>Neopyter run current<CR>', 'Jupyter: run # %% cell')
+    map('n', '<leader>jn', run_cell_and_next, 'Jupyter: run cell + move to next')
+    map('n', '<leader>ja', '<Cmd>Neopyter run all<CR>', 'Jupyter: run all cells')
+    map('n', '<leader>js', '<Cmd>Neopyter sync current<CR>', 'Jupyter: re-sync buffer → notebook')
+    -- Interrupt has no native subcommand; route it through Lab's command registry.
+    map('n', '<leader>jx', '<Cmd>Neopyter execute kernelmenu:interrupt<CR>',
+      'Jupyter: interrupt (stop running cell)')
+    map('n', '<leader>jR', '<Cmd>Neopyter kernel restart<CR>', 'Jupyter: restart kernel')
   end,
 })
