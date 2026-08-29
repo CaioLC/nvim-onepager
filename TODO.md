@@ -1,51 +1,35 @@
-# Setup TODO
+# TODO
 
-Continuing from 2026-05-25 setup session. The toolchain swap (zig → clang + MSVC Build Tools) is done and tree-sitter parsers now compile. The remaining items are leftovers from `:checkhealth`.
+Setup is complete. Every dependency `init.lua` documents is installed and on PATH
+(verified 2026-08-29): ripgrep, fd, tree-sitter CLI, clang, MSVC Build Tools,
+lua-language-server, zls, wgsl-analyzer, lazygit. After a machine change, the
+toolchain warning at the top of `init.lua` covers the parser build chain and
+`:checkhealth` covers the rest.
 
-## Required
+## Open
 
-- [ ] **wgsl-analyzer** — download, extract, put on PATH
-  - URL: https://github.com/wgsl-analyzer/wgsl-analyzer/releases/download/2026-04-26/wgsl-analyzer-x86_64-pc-windows-msvc.zip
-  - Suggested extract location: `%LOCALAPPDATA%\wgsl-analyzer\`
-  - Add the bin dir to User PATH
+- [ ] **Keymap and which-key structure** — worth doing in one pass rather than a
+      mapping at a time:
+  - `<leader>c` carries two meanings: `cb`/`cr`/`ct` are project runners, but the
+    prefix reads as "code" generally. Pick one.
+  - No which-key group labels for `<leader>t` (toggle) or `<leader>r` (config);
+    `<leader>e`, `<leader>o`, `<leader>?` and `<leader>L` are unlabelled singles.
+  - `<leader>L` (Lazy) and `<leader>rc` (open this config) are both "meta" —
+    decide whether Lazy belongs under the same prefix.
+  - `desc` strings follow no single convention ("Telescope find files" / "Jupyter:
+    run # %% cell" / "code: run b" / "Open [R]C config"). They *are* the
+    `<leader>fc` cheat-sheet, so a convention pays off twice.
 
-## Optional (warnings only, nothing breaks)
+## Known quirks — expected, not open bugs
 
-- [ ] **fd** — extended telescope find-files capabilities
-  - `winget install sharkdp.fd`
-- [ ] **jsregexp** — luasnip variable/placeholder transformations (skip unless you use those snippet features)
+- **pyrefly is per-env by design.** It is installed into project conda envs, not
+  base, so Python gets an LSP only when nvim is launched from an env that has it.
+  A FileType warning now says so rather than leaving the buffer silently
+  server-less.
+- **neopyter `table index is nil`** from `_on_bufwinenter` when a `*.ju.py` file
+  resolves outside a running JupyterLab root. Upstream nil path in
+  `jupyterlab.lua`; unaffected by how the plugin is loaded.
 
-## After everything is on PATH
-
-- [ ] Restart **WezTerm** (not just nvim) so PATH propagates
-- [ ] `:checkhealth` to confirm
-
-(Molten's `:UpdateRemotePlugins` step is no longer manual — the `User LazyInstall/Update/Sync` autocmd in `init.lua` force-loads all plugins and regenerates the manifest on any `:Lazy sync`.)
-
-## Done — Molten kill-kernel closes the wezterm image pane (2026-06-09, live-confirmed)
-
-`<leader>jK` (`molten_kill` in `init.lua`) kills the buffer's kernel via `:MoltenDeinit`
-AND closes the wezterm split pane molten opens for image output. Confirmed working.
-
-Root cause of the earlier failure: `pcall(wez.exec_sync, {...})` captured `exec_sync`'s
-first return value, which is its `(ok, stdout, stderr)` **boolean** `ok` — not the pane id —
-so `tonumber(true)` was always `nil` and nothing got killed. Fix: drop the pcall and use
-wezterm.nvim's `get_pane_direction(dir)`, which returns the trimmed neighbour pane id
-directly; the pane is then killed with `exec_sync({'cli','kill-pane','--pane-id', id})`.
-Direction comes from `molten_split_direction` (default `"right"`); the reference pane is
-inferred from `$WEZTERM_PANE` (inherited by the subprocess), so no pane id is passed in
-(passing a number would break `vim.system`, which wants string args). Committed in `c177b8b`.
-
-## Already done this session
-
-- LLVM/clang installed, on User PATH
-- VS 2022 Build Tools with VCTools workload + Windows 10 SDK 10.0.26100 installed (so clang finds `stdio.h` etc.)
-- ripgrep installed
-- lua-language-server installed
-- pyrefly installed into base conda (on PATH)
-- `nvim` conda env created at `%USERPROFILE%\.conda\envs\nvim` with `pynvim`, `jupyter_client`, `ipykernel`
-- `init.lua` updated:
-  - `vim.env.CC = 'clang'` (was `'zig cc'`)
-  - `vim.g.python3_host_prog` now resolves `$USERPROFILE` at runtime (was hardcoded to another user's path)
-  - Added `loaded_perl_provider`/`loaded_ruby_provider`/`loaded_node_provider = 0` to silence checkhealth
-- `CLAUDE.md` updated to reflect the clang swap and dynamic python path
+Molten's notes (the kill-kernel/wezterm-pane fix and the `exec_sync` return-value
+bug behind it) were dropped when neopyter replaced it — see history up to `c177b8b`
+if they are ever needed again.
