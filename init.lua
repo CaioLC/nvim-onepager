@@ -149,21 +149,23 @@ require("lazy").setup({
     },
 
     {
+      -- Completion menu: LSP items + filesystem paths, nothing else. No buffer-word
+      -- source (noise), and no snippet engine: servers are told snippetSupport = false
+      -- (vim.lsp.config['*'] in the LSP section), so accepting a completion inserts a
+      -- bare name with no placeholders to tab through -- the parameter list shows up
+      -- in the signature float instead. vim.snippet is wired as the expander only as
+      -- a fallback for servers that send a snippet regardless of the capability.
       "hrsh7th/nvim-cmp",
+      event = "InsertEnter", -- nothing to complete until you type; keeps startup for navigation
       dependencies = {
         "hrsh7th/cmp-nvim-lsp", -- LSP completion source
-        "hrsh7th/cmp-buffer",   -- Buffer words completion
         "hrsh7th/cmp-path",     -- File path completion
-        "L3MON4D3/LuaSnip",     -- Snippet engine (optional but recommended)
       },
       config = function()
         local cmp = require("cmp")
         cmp.setup({
           snippet = {
-            expand = function(args)
-              -- For LuaSnip (optional)
-              require("luasnip").lsp_expand(args.body)
-            end,
+            expand = function(args) vim.snippet.expand(args.body) end, -- built-in, no LuaSnip
           },
           mapping = cmp.mapping.preset.insert({
             ["<C-b>"] = cmp.mapping.scroll_docs(-4),
@@ -176,7 +178,6 @@ require("lazy").setup({
           }),
           sources = cmp.config.sources({
             { name = "nvim_lsp" }, -- LSP completions
-            { name = "buffer" },   -- Current buffer words
             { name = "path" },     -- File system paths
           }),
           -- Better completion experience
@@ -620,6 +621,19 @@ vim.keymap.set('n', '<leader>fc', find_custom_functions,
 
 
 -- LSP
+-- Merged into every server's config ('*' is vim.lsp.config's wildcard). Turning
+-- snippetSupport off is what stops function completions from arriving as snippets:
+-- with it on (nvim's default -- see snippetSupport = true in lsp/protocol.lua) a
+-- server returns `fn(${1:a}, ${2:b})`, which the completion engine expands into
+-- placeholders you tab between. Off, accepting a completion inserts just the name,
+-- and the parameter list is shown by the signature float (LspAttach, below) while
+-- you type the call -- the same information without the jumping.
+vim.lsp.config['*'] = {
+  capabilities = {
+    textDocument = { completion = { completionItem = { snippetSupport = false } } },
+  },
+}
+
 vim.lsp.config['luals'] = {
   cmd = { 'lua-language-server' },
   filetypes = { 'lua' },
@@ -692,17 +706,44 @@ vim.api.nvim_create_autocmd('FileType', {
 -- activate completion
 -- Use CTRL-Y to select an item. |complete_CTRL-Y|
 vim.opt.completeopt = 'menuone,noselect,popup'
+local sig_grp = vim.api.nvim_create_augroup('UserLspSignature', { clear = true })
 vim.api.nvim_create_autocmd('LspAttach', {
   group = vim.api.nvim_create_augroup('UserLspConfig', {}),
   callback = function(args)
     local bufnr = args.buf
     vim.bo[bufnr].omnifunc = 'v:lua.vim.lsp.omnifunc'
 
-    -- Autocomplete as you type (native 0.11 API). Pops on the server's trigger
-    -- chars (e.g. '.') and filters as you keep typing; <C-x><C-o> still works.
+    -- Completion belongs to nvim-cmp (see its spec above). The native
+    -- vim.lsp.completion autotrigger is deliberately NOT enabled here: with both on,
+    -- two engines race to drive the same popup.
     local client = vim.lsp.get_client_by_id(args.data.client_id)
-    if client and client:supports_method('textDocument/completion') then
-      vim.lsp.completion.enable(true, args.data.client_id, bufnr, { autotrigger = true })
+
+    -- Signature float: the parameter list, shown while you fill in a call. nvim has
+    -- an autotrigger for completion but none for signature help, so drive it off the
+    -- server's own trigger characters (usually '(' and ','). Deferred a tick because
+    -- InsertCharPre fires BEFORE the character reaches the buffer -- asking at that
+    -- moment describes the position one column back. focusable=false keeps the float
+    -- out of <C-w> window cycling; silent suppresses the "No signature help
+    -- available" message for calls the server can't resolve. Registered idempotently
+    -- for the same reason as format-on-save below: LspAttach re-fires on reload.
+    if client and client:supports_method('textDocument/signatureHelp') then
+      local triggers = vim.tbl_get(client.server_capabilities,
+        'signatureHelpProvider', 'triggerCharacters') or { '(', ',' }
+      vim.api.nvim_clear_autocmds({ group = sig_grp, event = 'InsertCharPre', buffer = bufnr })
+      vim.api.nvim_create_autocmd('InsertCharPre', {
+        group = sig_grp,
+        buffer = bufnr,
+        callback = function()
+          if not vim.tbl_contains(triggers, vim.v.char) then return end
+          vim.defer_fn(function()
+            vim.lsp.buf.signature_help({
+              focusable = false,
+              silent = true,
+              close_events = { 'CursorMoved', 'InsertLeave', 'BufHidden' },
+            })
+          end, 30)
+        end,
+      })
     end
 
     -- Help with signature help
