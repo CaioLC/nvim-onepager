@@ -411,9 +411,15 @@ end, { desc = 'Open terminal pane below' })
 vim.keymap.set('t', '<Esc>', '<C-\\><C-N>', { desc = 'Normal Mode in terminal' })
 vim.keymap.set('t', '<C-w>', "<C-\\><C-n><C-w>")
 vim.keymap.set('n', '<C-g>', "3<C-w>_", { desc = 'Maximize current window' })
--- comment toggle (Ctrl+/ needs CSI-u in wezterm to be distinct from <CR>/<BS>)
-vim.keymap.set('n', '<C-/>', 'gcc', { remap = true, desc = 'Toggle comment line' })
-vim.keymap.set('x', '<C-/>', 'gc', { remap = true, desc = 'Toggle comment selection' })
+-- Comment toggle, bound under BOTH spellings of the one keypress. A terminal in
+-- legacy mode sends Ctrl+/ as 0x1F, which nvim reads as <C-_>; a terminal that
+-- reports modified keys (CSI-u / kitty protocol) sends a true <C-/>. This config
+-- runs with the kitty protocol OFF (see wezterm.lua), so <C-_> is the one that
+-- actually fires -- <C-/> alone silently stopped working when that was turned off.
+for _, key in ipairs({ '<C-/>', '<C-_>' }) do
+  vim.keymap.set('n', key, 'gcc', { remap = true, desc = 'Toggle comment line' })
+  vim.keymap.set('x', key, 'gc', { remap = true, desc = 'Toggle comment selection' })
+end
 
 -- Language-aware <leader>c (code) runners. A project type is recognised by a
 -- root marker found upward from the cwd; the shared subcommand letters then run
@@ -658,14 +664,31 @@ vim.lsp.config['wgsl-analyzer'] = {
   cmd = { 'wgsl-analyzer' },
   filetypes = { 'wgsl' },
 }
-vim.lsp.enable({ 'luals', 'pyrefly', 'zls', 'wgsl-analyzer' })
+local servers = { 'luals', 'pyrefly', 'zls', 'wgsl-analyzer' }
+vim.lsp.enable(servers)
 
--- pyrefly resolves via PATH from your active conda env. If it's missing and you're
--- doing Python work, install it into the activated env: pip install pyrefly
--- if vim.fn.executable('pyrefly') == 0 then
---   vim.notify('pyrefly not found. If working with Python, install it in your '
---     .. 'activated conda env: pip install pyrefly', vim.log.levels.WARN)
--- end
+-- Warn once per server when its binary isn't on PATH. nvim skips an unresolvable cmd
+-- silently, which is indistinguishable from "the LSP is broken" -- pyrefly hits this
+-- constantly because it's installed per project conda env, so whether it resolves
+-- depends on which env nvim was launched from. That's also why the check runs at
+-- FileType rather than at startup: it reports on the environment nvim actually has,
+-- and only for a language you actually opened.
+local lsp_warned = {}
+vim.api.nvim_create_autocmd('FileType', {
+  callback = function(args)
+    for _, name in ipairs(servers) do
+      local cfg = vim.lsp.config[name]
+      local exe = cfg and cfg.cmd and cfg.cmd[1]
+      if exe and not lsp_warned[name]
+        and vim.tbl_contains(cfg.filetypes or {}, args.match)
+        and vim.fn.executable(exe) == 0 then
+        lsp_warned[name] = true
+        vim.notify(("%s: '%s' is not on PATH -- no LSP for %s in this session.")
+          :format(name, exe, args.match), vim.log.levels.WARN)
+      end
+    end
+  end,
+})
 -- activate completion
 -- Use CTRL-Y to select an item. |complete_CTRL-Y|
 vim.opt.completeopt = 'menuone,noselect,popup'
@@ -773,23 +796,36 @@ vim.api.nvim_create_autocmd('LspAttach', {
         end,
       })
     end, { buffer = bufnr, desc = "Find references" })
-    vim.keymap.set('n', '<leader>ca', vim.lsp.buf.code_action, { buffer = bufnr, desc = "Code action" })
-    vim.keymap.set('n', 'rn', vim.lsp.buf.rename, { buffer = bufnr, desc = "Rename" })
+    -- No mappings for rename or code action: nvim 0.12 ships grn and gra as
+    -- defaults. 'rn' especially must stay unmapped -- it shadows r{char}, so with it
+    -- bound you cannot replace a character with the letter n (the same trap the old
+    -- 'gr' mapping fell into). 'grr' above is an intentional override of a default;
+    -- 'gd' and 'K' are not defaults at all -- plain gd is a textual "local
+    -- declaration" search that predates LSP, and K runs keywordprg.
   end,
 })
 
 -- Add format on save
+-- Registered idempotently: LspAttach fires once per client AND again on every buffer
+-- reload, so a plain nvim_create_autocmd here stacks write hooks up -- a buffer that
+-- has been :e'd twice ends up formatting itself four times per save. Clearing this
+-- group's BufWritePre for the buffer before adding keeps it at exactly one, which
+-- then formats with every attached client that advertises formatting instead of
+-- pinning the single client whose attach happened to register it.
+local format_grp = vim.api.nvim_create_augroup('LspFormatOnSave', { clear = true })
 vim.api.nvim_create_autocmd('LspAttach', {
-  group = vim.api.nvim_create_augroup('LspFormatOnSave', {}),
+  group = format_grp,
   callback = function(args)
     local client = vim.lsp.get_client_by_id(args.data.client_id)
     local bufnr = args.buf
 
     if client and client:supports_method("textDocument/formatting", bufnr) then
+      vim.api.nvim_clear_autocmds({ group = format_grp, event = 'BufWritePre', buffer = bufnr })
       vim.api.nvim_create_autocmd("BufWritePre", {
+        group = format_grp,
         buffer = bufnr,
         callback = function()
-          vim.lsp.buf.format { async = false, id = args.data.client_id }
+          vim.lsp.buf.format { async = false, bufnr = bufnr }
         end,
       })
     end
@@ -870,12 +906,18 @@ vim.api.nvim_create_autocmd({ 'BufWinEnter', 'WinEnter', 'FileType' }, {
 })
 
 -- SETUP NVIM-TREESITTER
-require('nvim-treesitter').install { "c", "lua", "markdown", "markdown_inline", "python", "zig", "superhtml", "wgsl" }
+-- One list drives both halves: which parsers get compiled, and which filetypes get
+-- highlighting/folds/indent from them. Keeping two lists is how a parser ends up
+-- built on every startup and never used -- 'c' and 'superhtml' were in exactly that
+-- state, compiled but with treesitter never started for them. markdown_inline is a
+-- parser only: it is injected into markdown buffers, it is not a filetype.
+local ts_filetypes = { 'c', 'lua', 'markdown', 'python', 'superhtml', 'wgsl', 'zig' }
+require('nvim-treesitter').install(vim.list_extend({ 'markdown_inline' }, ts_filetypes))
 
 vim.filetype.add({ extension = { wgsl = "wgsl" } })
 
 vim.api.nvim_create_autocmd('FileType', {
-  pattern = { 'wgsl', 'zig', 'python', 'lua' },
+  pattern = ts_filetypes,
   callback = function()
     vim.treesitter.start()                                            -- highlighting
     vim.wo.foldmethod = 'expr'
