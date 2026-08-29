@@ -371,7 +371,14 @@ require('lualine').setup({
 })
 
 -- KEYMAPS | Keybindings
-vim.keymap.set('n', '<leader>rc', ':e $MYVIMRC<CR>', { desc = 'Open [R]C config' }) -- Open init.lua
+-- Open THIS file, not $MYVIMRC: when nvim's config dir holds a one-line `dofile`
+-- shim (the Windows setup) $MYVIMRC is the shim, so editing it lands on a stub
+-- instead of the one-pager. The running chunk's source is always the real file;
+-- fs_realpath also follows a symlinked config dir into the repo (Linux setup).
+vim.keymap.set('n', '<leader>rc', function()
+  local this = debug.getinfo(1, 'S').source:sub(2)
+  vim.cmd.edit(vim.fn.fnameescape(vim.uv.fs_realpath(this) or this))
+end, { desc = 'Open [R]C config' })                                                -- Open init.lua
 vim.keymap.set('n', '<leader>L', ':Lazy<CR>', { desc = 'Lazy.nvim UI' })            -- Open Lazy
 -- <Cmd> (not ':...<CR>') so it runs without entering command-line mode and without
 -- swallowing a pending count/operator — plain <Esc>'s normal-mode cancel still works.

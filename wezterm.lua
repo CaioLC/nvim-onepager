@@ -1,12 +1,15 @@
 -- WezTerm config (version-controlled with the nvim repo).
 --
 -- WezTerm doesn't read this file directly — it looks at ~/.wezterm.lua.
--- On a new machine, create that file with this single line so it loads
--- the config from here:
+-- On a new machine, create that file with a single line pointing at THIS
+-- repo's checkout:
 --
---     return dofile(os.getenv('USERPROFILE') .. [[\AppData\Local\nvim\wezterm.lua]])
+--     return dofile([[A:\Projects\nvim-onepager\wezterm.lua]])
 --
--- That 1-line shim is the only per-machine setup needed.
+-- That 1-line shim is the only per-machine setup needed. Point it at the repo,
+-- never at %USERPROFILE%\AppData\Local\nvim\ — that dir is only nvim's config
+-- dir (it holds a dofile shim for init.lua); a wezterm.lua sitting there is a
+-- copy that `git pull` never updates and that silently wins over this file.
 
 local wezterm = require('wezterm')
 local config = wezterm.config_builder()

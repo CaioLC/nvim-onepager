@@ -10,8 +10,11 @@ Platform: Windows (paths, `winget`, PowerShell, App Execution Aliases). The conf
 
 ## How the files are wired on the host
 
-- `init.lua` is loaded by Neovim from `%USERPROFILE%\AppData\Local\nvim\init.lua`. This repo is expected to live at (or be symlinked to) that location.
-- `wezterm.lua` lives in this repo but WezTerm itself reads `~/.wezterm.lua`. The user creates a one-line shim there: `return dofile(os.getenv('USERPROFILE') .. [[\AppData\Local\nvim\wezterm.lua]])`. That shim is the only per-machine WezTerm setup.
+- Both configs are loaded through one-line `dofile` shims that point at **this repo's checkout** (e.g. `A:\projects\nvim-onepager`). Nothing but the shims lives outside the repo.
+- Neovim reads `%USERPROFILE%\AppData\Local\nvim\init.lua`; on this host that file is the shim: `return dofile([[A:\Projects\nvim-onepager\init.lua]])`. That dir is *not* a checkout of this repo — it only holds the shim plus lazy.nvim's `lazy-lock.json` (gitignored, written to `stdpath('config')`).
+- WezTerm reads `~/.wezterm.lua`, which is the matching shim: `return dofile([[A:\Projects\nvim-onepager\wezterm.lua]])`.
+- **Point shims at the repo, never at `%USERPROFILE%\AppData\Local\nvim\`.** A copy of `wezterm.lua` left in that dir silently wins over the repo and is never updated by `git pull` — that exact stale copy (with `enable_kitty_keyboard = true`) was removed 2026-08-29.
+- Because `$MYVIMRC` is the shim, code that needs the real file's path uses the running chunk's own source (`debug.getinfo(1, 'S').source`) — see `<leader>rc`, the `lazygit.yml` lookup, and the command-palette scanner.
 
 ## OS-level dependencies (not pip/npm — system binaries)
 
