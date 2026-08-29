@@ -1,3 +1,7 @@
 *.json
 *.py
 
+# .luarc.json is config, not an artifact: it teaches any lua_ls opened on this
+# repo about the `vim` global and the nvim runtime (init.lua only configures the
+# server for nvim itself). Keep it tracked despite the *.json rule above.
+!.luarc.json
