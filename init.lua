@@ -346,6 +346,10 @@ vim.o.shiftwidth = 2
 vim.o.expandtab = true
 vim.o.termguicolors = true
 vim.o.linebreak = true -- wrap at word boundaries, not mid-word
+-- Share the unnamed register with the Windows clipboard, so plain y/d/p talk
+-- to other apps without the "+ prefix. The provider is win32yank.exe, which
+-- ships with the Neovim Windows installer -- nothing to install.
+vim.o.clipboard = 'unnamedplus'
 require('lualine').setup({
   sections = {
     lualine_b = { 'branch', 'diagnostics' },
@@ -675,10 +679,10 @@ vim.api.nvim_create_autocmd('LspAttach', {
     vim.keymap.set('i', '<C-h>', vim.lsp.buf.signature_help, { buffer = bufnr })
     vim.keymap.set('n', 'K', vim.lsp.buf.hover, { buffer = bufnr, desc = "Hover documentation" })
     vim.keymap.set('n', 'gd', vim.lsp.buf.definition, { buffer = bufnr, desc = "Go to definition" })
-    -- 'gr' mirrors the aerial outline pane (autojump=true): the references land in
+    -- 'grr' mirrors the aerial outline pane (autojump=true): the references land in
     -- the quickfix list, moving through them live-previews each location in the
     -- window we came from, and <CR> confirms the previewed spot and closes the list.
-    vim.keymap.set('n', 'gr', function()
+    vim.keymap.set('n', 'grr', function()
       local origin_win = vim.api.nvim_get_current_win()
       -- Snapshot where we started so a cancel (anything but <CR>) can restore it;
       -- live preview drags origin_win across files, which is jarring to abandon.
@@ -719,7 +723,7 @@ vim.api.nvim_create_autocmd('LspAttach', {
             hl_buf = entry.bufnr
           end
 
-          -- Put origin_win back to the pre-'gr' buffer and view.
+          -- Put origin_win back to the pre-'grr' buffer and view.
           local function restore()
             if not vim.api.nvim_win_is_valid(origin_win) or not vim.api.nvim_buf_is_valid(origin_buf) then return end
             vim.api.nvim_win_set_buf(origin_win, origin_buf)
@@ -729,11 +733,15 @@ vim.api.nvim_create_autocmd('LspAttach', {
           local grp = vim.api.nvim_create_augroup('GrReferencesPreview', { clear = true })
           -- Live preview as the cursor moves through the list (the autojump part).
           vim.api.nvim_create_autocmd('CursorMoved', { group = grp, buffer = qf_buf, callback = preview })
-          -- Closing the list any other way (q, :cclose, switching windows) restores.
+          -- The list going away drops the preview highlight either way; closing it
+          -- any other way (q, :cclose, switching windows) also restores the origin.
           vim.api.nvim_create_autocmd('BufWinLeave', {
             group = grp,
             buffer = qf_buf,
-            callback = function() if not confirmed then restore() end end,
+            callback = function()
+              clear_hl()
+              if not confirmed then restore() end
+            end,
           })
 
           -- <CR>: confirm the previewed location, close the list, land in the buffer.
