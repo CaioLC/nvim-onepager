@@ -710,7 +710,10 @@ vim.api.nvim_create_autocmd('LspAttach', {
             if not vim.api.nvim_win_is_valid(origin_win) then return end
             local entry = vim.fn.getqflist()[vim.fn.line('.')]
             if not entry or entry.valid == 0 or entry.bufnr == 0 then return end
-            vim.fn.bufload(entry.bufnr)
+            -- Let nvim_win_set_buf do the loading rather than bufload()ing first:
+            -- it runs the read with the buffer already in origin_win, so the
+            -- window-local fold options the FileType autocmd sets actually stick.
+            -- bufload() would run that autocmd in a throwaway autocmd window.
             vim.api.nvim_win_set_buf(origin_win, entry.bufnr)
             vim.api.nvim_win_set_cursor(origin_win, { entry.lnum, math.max((entry.col or 1) - 1, 0) })
             vim.api.nvim_win_call(origin_win, function() vim.cmd('normal! zz') end)
@@ -732,7 +735,12 @@ vim.api.nvim_create_autocmd('LspAttach', {
 
           local grp = vim.api.nvim_create_augroup('GrReferencesPreview', { clear = true })
           -- Live preview as the cursor moves through the list (the autojump part).
-          vim.api.nvim_create_autocmd('CursorMoved', { group = grp, buffer = qf_buf, callback = preview })
+          -- 'nested' is load-bearing: autocmds don't fire autocmds by default, so
+          -- without it the read this triggers skips filetype detection and every
+          -- previewed buffer opens with no treesitter highlighting and no folds.
+          vim.api.nvim_create_autocmd('CursorMoved', {
+            group = grp, buffer = qf_buf, nested = true, callback = preview,
+          })
           -- The list going away drops the preview highlight either way; closing it
           -- any other way (q, :cclose, switching windows) also restores the origin.
           vim.api.nvim_create_autocmd('BufWinLeave', {
