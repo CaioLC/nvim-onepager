@@ -742,6 +742,11 @@ vim.api.nvim_create_autocmd('LspAttach', {
             vim.lsp.buf.signature_help({
               focusable = false,
               silent = true,
+              -- Cap it: signature_help renders the signature AND the full docstring,
+              -- and a documented builtin (vim.fn.has, say) is hundreds of lines --
+              -- uncapped it covers the buffer you are typing into.
+              max_height = 10,
+              max_width = 80,
               close_events = { 'CursorMoved', 'InsertLeave', 'BufHidden' },
             })
           end, 30)
