@@ -306,7 +306,10 @@ require("lazy").setup({
       -- JUPYTER section below, gated to *.ju.py buffers.
       "SUSTech-data/neopyter",
       dependencies = { "AbaoFromCUG/websocket.nvim" }, -- server impl for direct mode
-      lazy = false, -- its attach autocmds must exist before a *.ju.py buffer opens
+      -- Loaded on the first *.ju.py buffer rather than at startup. lazy.nvim splits an
+      -- "<Event> <pattern>" spec into event+pattern, and BufReadPre/BufNewFile fire
+      -- before the buffer is read, so neopyter's attach autocmds still exist in time.
+      event = { "BufReadPre *.ju.py", "BufNewFile *.ju.py" },
       opts = {
         mode = "direct",
         remote_address = "127.0.0.1:9001",
