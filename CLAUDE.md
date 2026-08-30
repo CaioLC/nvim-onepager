@@ -55,6 +55,7 @@ These are documented at the top of `init.lua`. They must be on PATH for the conf
 - `:checkhealth` — diagnose provider / plugin / parser issues
 - `:lua require('nvim-treesitter').install({'lang'})` — force-install or rebuild a single parser (use after fixing compiler errors)
 - `<leader>fc` — fuzzy-search this config's own mappings and commands (built live from `desc` fields)
+- `gd` in a markdown buffer — follow the link under the cursor: `[text](path.md)`, `[[wikilink]]`, or a bare path. Extensionless targets get `.md`; a `#anchor` jumps to the matching heading; URLs go to the OS. `<C-o>` comes back.
 - `<leader>gg` — lazygit in a floating terminal, themed by the repo's `lazygit.yml`
 - `<leader>jl` — launch JupyterLab (browser) from the `nvim` conda env; `:RegisterCondaKernels` — register conda envs (with ipykernel) as Jupyter kernels
 

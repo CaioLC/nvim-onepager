@@ -1029,6 +1029,129 @@ end
 set_markdown_highlights()
 vim.api.nvim_create_autocmd('ColorScheme', { callback = set_markdown_highlights })
 
+-- MARKDOWN LINK FOLLOWING
+-- Markdown buffers have no LSP client here, so 'gd' is free for the thing that
+-- actually means "go to definition" in prose: open the file the link under the
+-- cursor points at. Three forms are recognised -- [text](path.md), [[wikilink]],
+-- and a bare path via <cfile> -- because notes on this machine mix them. Parsing
+-- is a line scan, not a treesitter query: link destinations live in the
+-- markdown_inline parser (an injected tree, so a second parse to walk) and
+-- wikilinks are not nodes in that grammar at all. Reference-style links
+-- ([text][ref] plus a [ref]: path definition elsewhere) are not resolved.
+
+-- Slug a heading the way markdown renderers do (lowercase, punctuation dropped,
+-- spaces to hyphens) so a '#anchor' in a link can be matched against it.
+local function md_slug(s)
+  return (s:lower():gsub('[^%w%s%-]', ''):gsub('%s+', '-'))
+end
+
+local function md_goto_heading(anchor)
+  if not anchor or anchor == '' then return end
+  local want = md_slug(anchor)
+  for i, l in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
+    local text = l:match('^#+%s+(.-)%s*$')
+    if text and md_slug(text) == want then
+      vim.api.nvim_win_set_cursor(0, { i, 0 })
+      vim.cmd('normal! zz')
+      return
+    end
+  end
+  vim.notify('markdown: no heading matching #' .. anchor, vim.log.levels.WARN)
+end
+
+-- The candidate whose span contains the cursor wins; failing that the first one
+-- to its right, then the last one to its left -- so 'gd' anywhere on a line with
+-- one link still follows it.
+local function md_link_target()
+  local line = vim.api.nvim_get_current_line()
+  local col = vim.api.nvim_win_get_cursor(0)[2] + 1 -- 1-based, as string positions are
+  local under, after, before
+
+  local function consider(s, e, target) -- span is [s, e), from the () captures
+    if not target or target == '' then return end
+    if col >= s and col < e then
+      under = under or target
+    elseif s >= col then
+      after = after or target
+    else
+      before = target
+    end
+  end
+
+  -- [[note]] / [[note|alias]] / [[note#heading]] -- alias dropped, anchor kept.
+  for s, inner, e in line:gmatch('()%[%[(.-)%]%]()') do
+    consider(s, e, (inner:gsub('|.*$', '')))
+  end
+  -- [text](dest) -- <angle-wrapped> dests unwrapped, a trailing "title" dropped.
+  for s, inner, e in line:gmatch('()%[[^%]]*%]%((.-)%)()') do
+    consider(s, e, inner:match('^<(.-)>') or inner:match('^%S+'))
+  end
+
+  if under or after or before then return under or after or before end
+  local cfile = vim.fn.expand('<cfile>') -- bare path, not wrapped in any link syntax
+  return cfile ~= '' and cfile or nil
+end
+
+local function md_follow(target)
+  if target:match('^%a[%w+.%-]*://') or target:match('^mailto:') then
+    vim.ui.open(target) -- not ours to open in a buffer; hand it to the OS
+    return
+  end
+
+  local anchor = target:match('#(.*)$')
+  local path = target:gsub('#.*$', '')
+  if path:match('%%%x%x') then path = vim.uri_decode(path) end -- %20-escaped names
+  if path == '' then return md_goto_heading(anchor) end        -- same-file '#heading'
+  if not path:match('%.%w+$') then path = path .. '.md' end    -- extensionless wikilinks
+
+  -- Candidates in order: an absolute path as given, else relative to this file,
+  -- then to the cwd. A bare name matching none of those gets one recursive look
+  -- under the cwd, which is how a [[wikilink]] to a note in another folder lands.
+  local candidates
+  if path:match('^[~/\\]') or path:match('^%a:[/\\]') then
+    candidates = { vim.fn.expand(path) }
+  else
+    candidates = { vim.fn.expand('%:p:h') .. '/' .. path, vim.fn.getcwd() .. '/' .. path }
+  end
+
+  local file
+  for _, c in ipairs(candidates) do
+    if vim.uv.fs_stat(c) then
+      file = c
+      break
+    end
+  end
+  if not file and not path:match('[/\\]') then
+    file = vim.fs.find(path, { path = vim.fn.getcwd(), type = 'file', limit = 1 })[1]
+  end
+  -- Nothing on disk: open the path anyway, relative to this file. Following a link
+  -- to a note that does not exist yet is how that note gets created -- nothing is
+  -- written until :w -- but warn, because it is also what a typo looks like.
+  if not file then
+    file = candidates[1]
+    vim.notify('markdown: new file ' .. vim.fn.fnamemodify(file, ':~:.'), vim.log.levels.WARN)
+  end
+
+  vim.cmd("normal! m'") -- push the jumplist so <C-o> comes straight back
+  vim.cmd.edit(vim.fn.fnameescape(file))
+  md_goto_heading(anchor)
+end
+
+vim.api.nvim_create_autocmd('FileType', {
+  pattern = 'markdown',
+  callback = function(args)
+    vim.opt_local.suffixesadd:prepend('.md') -- gf on a bare path guesses .md too
+    vim.keymap.set('n', 'gd', function()
+      local target = md_link_target()
+      if not target then
+        vim.notify('markdown: no link under the cursor', vim.log.levels.WARN)
+        return
+      end
+      md_follow(target)
+    end, { buffer = args.buf, desc = 'Markdown: follow link under cursor' })
+  end,
+})
+
 local function refresh_todo_matches()
   -- Drop the matches we added on a previous visit to this window.
   for _, id in ipairs(vim.w.todo_match_ids or {}) do pcall(vim.fn.matchdelete, id) end
