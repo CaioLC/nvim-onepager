@@ -710,6 +710,117 @@ vim.api.nvim_create_autocmd('FileType', {
 -- Use CTRL-Y to select an item. |complete_CTRL-Y|
 vim.opt.completeopt = 'menuone,noselect,popup'
 local sig_grp = vim.api.nvim_create_augroup('UserLspSignature', { clear = true })
+
+-- Signature float config, shared by the InsertCharPre trigger below and by <C-h>,
+-- so the float you step into has the same shape as the one that pops up on its own.
+local sig_float = {
+  focusable = false,
+  silent = true,
+  -- Cap it: signature_help renders the signature AND the full docstring, and a
+  -- documented builtin (vim.fn.has, say) is hundreds of lines -- uncapped it
+  -- covers the buffer you are typing into.
+  max_height = 10,
+  max_width = 80,
+  close_events = { 'CursorMoved', 'InsertLeave', 'BufHidden' },
+}
+-- nvim's own namespace for the LspSignatureActiveParameter highlight it puts on
+-- the float; reading its extmark is how we find the parameter being filled.
+local sig_ns = vim.api.nvim_create_namespace('nvim.lsp.signature_help')
+
+-- 'gd' inside the float cannot be vim.lsp.buf.definition: the float is a scratch
+-- markdown buffer with no LSP client and no relation to the source file, so a
+-- position-based request there means nothing. Resolve the identifier by NAME
+-- through the source buffer's client instead -- workspace/symbol is what lets you
+-- chase a struct or type you spotted in a signature back to where it is defined.
+local function signature_goto(srcbuf, srcwin, leave)
+  local word = vim.fn.expand('<cword>')
+  local client = vim.lsp.get_clients({ bufnr = srcbuf })[1]
+  if word == '' or not client then return end
+  client:request('workspace/symbol', { query = word }, function(err, result)
+    if err or not result or vim.tbl_isempty(result) then
+      vim.notify(('No workspace symbol named %q'):format(word), vim.log.levels.WARN)
+      return
+    end
+    -- The server matches the query fuzzily, so prefer hits actually named `word`.
+    local exact = vim.tbl_filter(function(sym) return sym.name == word end, result)
+    local hits = #exact > 0 and exact or result
+    leave(false) -- back to the source window, but do not resume insert: we're leaving
+    if #hits == 1 then
+      vim.lsp.util.show_document(hits[1].location, client.offset_encoding, { focus = true })
+    else
+      vim.fn.setqflist({}, ' ', {
+        title = 'Symbols named ' .. word,
+        items = vim.lsp.util.symbols_to_items(hits, srcbuf, client.offset_encoding),
+      })
+      vim.cmd('copen')
+    end
+  end, srcbuf)
+end
+
+-- <C-h> opens the signature float; pressing it again while the float is up steps
+-- INTO it, cursor parked on the parameter you are currently filling, so you can
+-- read that parameter's type and chase it with gd. q / <Esc> / <C-h> come back to
+-- exactly where you were typing.
+local function signature_focus()
+  local srcbuf, srcwin = vim.api.nvim_get_current_buf(), vim.api.nvim_get_current_win()
+  local fwin = vim.b[srcbuf].lsp_floating_preview
+  if not (fwin and vim.api.nvim_win_is_valid(fwin)) then
+    vim.lsp.buf.signature_help(sig_float) -- nothing up yet; press again to step in
+    return
+  end
+  -- The float closes on InsertLeave, and stepping into it leaves insert -- so drop
+  -- its close autocmds first. nvim names that group after the float's window id
+  -- (close_preview_autocmd in lsp/util.lua) and does NOT exempt the float itself
+  -- from close_events. If that name ever changes the float just shuts as you enter.
+  pcall(vim.api.nvim_del_augroup_by_name, 'nvim.preview_window_' .. fwin)
+
+  local insert = vim.startswith(vim.api.nvim_get_mode().mode, 'i')
+  local pos = vim.api.nvim_win_get_cursor(srcwin)
+  vim.cmd('stopinsert')
+  vim.api.nvim_win_set_config(fwin, { focusable = true }) -- it was opened non-focusable
+  vim.api.nvim_set_current_win(fwin)
+
+  local fbuf = vim.api.nvim_win_get_buf(fwin)
+  local mark = vim.api.nvim_buf_get_extmarks(fbuf, sig_ns, 0, -1, {})[1]
+  if mark then pcall(vim.api.nvim_win_set_cursor, fwin, { mark[2] + 1, mark[3] }) end
+
+  -- resume ~= false puts you back mid-call in insert mode. startinsert inserts
+  -- before the cursor character, startinsert! appends -- the latter is the right
+  -- one when you were typing at end of line, which is the usual case here.
+  local function leave(resume)
+    if vim.api.nvim_win_is_valid(fwin) then vim.api.nvim_win_close(fwin, true) end
+    if not vim.api.nvim_win_is_valid(srcwin) then return end
+    vim.api.nvim_set_current_win(srcwin)
+    pcall(vim.api.nvim_win_set_cursor, srcwin, pos)
+    if insert and resume ~= false then
+      vim.cmd(pos[2] >= #vim.api.nvim_get_current_line() and 'startinsert!' or 'startinsert')
+    end
+  end
+
+  -- We deleted the float's own close autocmds above, so it can no longer clean
+  -- itself up: make sure it cannot outlive the visit if you wander off with a
+  -- window command instead of q.
+  vim.api.nvim_create_autocmd('WinLeave', {
+    group = sig_grp,
+    buffer = fbuf,
+    once = true,
+    callback = function()
+      vim.schedule(function()
+        if vim.api.nvim_win_is_valid(fwin) then vim.api.nvim_win_close(fwin, true) end
+      end)
+    end,
+  })
+
+  for _, key in ipairs({ 'q', '<Esc>', '<C-h>' }) do
+    vim.keymap.set('n', key, function() leave(true) end,
+      { buffer = fbuf, nowait = true, desc = 'Back to the call' })
+  end
+  for _, key in ipairs({ 'gd', '<C-]>' }) do
+    vim.keymap.set('n', key, function() signature_goto(srcbuf, srcwin, leave) end,
+      { buffer = fbuf, desc = 'Definition of the symbol under the cursor' })
+  end
+end
+
 vim.api.nvim_create_autocmd('LspAttach', {
   group = vim.api.nvim_create_augroup('UserLspConfig', {}),
   callback = function(args)
@@ -738,24 +849,14 @@ vim.api.nvim_create_autocmd('LspAttach', {
         buffer = bufnr,
         callback = function()
           if not vim.tbl_contains(triggers, vim.v.char) then return end
-          vim.defer_fn(function()
-            vim.lsp.buf.signature_help({
-              focusable = false,
-              silent = true,
-              -- Cap it: signature_help renders the signature AND the full docstring,
-              -- and a documented builtin (vim.fn.has, say) is hundreds of lines --
-              -- uncapped it covers the buffer you are typing into.
-              max_height = 10,
-              max_width = 80,
-              close_events = { 'CursorMoved', 'InsertLeave', 'BufHidden' },
-            })
-          end, 30)
+          vim.defer_fn(function() vim.lsp.buf.signature_help(sig_float) end, 30)
         end,
       })
     end
 
     -- Help with signature help
-    vim.keymap.set('i', '<C-h>', vim.lsp.buf.signature_help, { buffer = bufnr })
+    vim.keymap.set('i', '<C-h>', signature_focus,
+      { buffer = bufnr, desc = 'Signature help (press again to step into the float)' })
     vim.keymap.set('n', 'K', vim.lsp.buf.hover, { buffer = bufnr, desc = "Hover documentation" })
     vim.keymap.set('n', 'gd', vim.lsp.buf.definition, { buffer = bufnr, desc = "Go to definition" })
     -- 'grr' mirrors the aerial outline pane (autojump=true): the references land in
