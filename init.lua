@@ -1269,6 +1269,27 @@ local function jupyter_lab_start()
       .. "neopyter lckr_jupyterlab_variableinspector itables", vim.log.levels.ERROR)
     return
   end
+  -- The interpreter existing is not enough: the *browser* half has to live in that
+  -- env too. With jupyterlab/neopyter missing, `python -m jupyterlab` exits
+  -- instantly into the log pane, which reads as "it launched and nothing happened";
+  -- cells then silently never run, because nvim's RPC server has nothing connecting
+  -- to it. Probe site-packages directly (no subprocess, same spirit as the ucrt
+  -- header glob) so the real cause is named up front. Only these two are
+  -- load-bearing -- the inspector and itables merely render extras.
+  local site = vim.fn.fnamemodify(py, ':h') .. '/Lib/site-packages/'
+  local missing = {}
+  for _, mod in ipairs({ 'jupyterlab', 'neopyter' }) do
+    if vim.fn.isdirectory(site .. mod) == 0 then
+      table.insert(missing, mod)
+    end
+  end
+  if #missing > 0 then
+    vim.notify('JupyterLab env is missing: ' .. table.concat(missing, ', ')
+      .. '\nCells cannot run until it is installed. Fix:\n'
+      .. '& "' .. py .. '" -m pip install jupyterlab neopyter '
+      .. 'lckr_jupyterlab_variableinspector itables', vim.log.levels.ERROR)
+    return
+  end
   local cwd = vim.fn.getcwd()
   if vim.env.WEZTERM_PANE then
     vim.fn.jobstart({ 'wezterm', 'cli', 'split-pane', '--bottom', '--cwd', cwd,
