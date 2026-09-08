@@ -994,12 +994,32 @@ vim.api.nvim_create_autocmd('LspAttach', {
 
 -- DIAGNOSTICS
 vim.diagnostic.config({
+  -- Inline text is a one-line hint: nvim clips it at the window edge and never
+  -- wraps it, so a long message is unreadable there by design. The full text is
+  -- one keypress away (<leader>d below) instead of always on screen.
   virtual_text = true,
   severity_sort = {
     true,
-    reverse = true
-  }
+    reverse = false
+  },
+  -- Defaults for vim.diagnostic.open_float: every diagnostic on the line, the
+  -- whole message wrapped inside the float, tagged with the server it came from.
+  float = {
+    scope = 'line',
+    source = true,
+    header = '',
+    border = 'rounded',
+    wrap = true,
+    max_width = 100,
+  },
 })
+
+-- <leader>d shows the full text of the diagnostics on the cursor line. Pressing it
+-- again steps INTO the float (nvim's focus_id handling, the same as K K for hover)
+-- so a long message can be scrolled or yanked; q / <C-w>p come back out. Moving
+-- the cursor in the source window closes it. Nvim maps <C-w>d to the same call.
+vim.keymap.set('n', '<leader>d', vim.diagnostic.open_float,
+  { desc = 'Diagnostics on this line, full text (press again to step into the float)' })
 
 -- COMMENT KEYWORDS (NOTE: / TODO: / FIXME:) highlighting — comments only.
 -- Plugin-free (no todo-comments.nvim): pure matchadd. matchadd has no notion of
