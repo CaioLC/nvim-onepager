@@ -942,6 +942,16 @@ vim.api.nvim_create_autocmd('LspAttach', {
             end
           end, { buffer = qf_buf, nowait = true, desc = 'Jump to reference and close' })
 
+          -- <Esc>: cancel -- close the list and go back to where 'grr' was pressed.
+          -- Closing fires the BufWinLeave above, which puts origin_win's buffer and
+          -- view back since nothing was confirmed; only focus needs handling here.
+          vim.keymap.set('n', '<Esc>', function()
+            vim.cmd('cclose')
+            if vim.api.nvim_win_is_valid(origin_win) then
+              vim.api.nvim_set_current_win(origin_win)
+            end
+          end, { buffer = qf_buf, nowait = true, desc = 'Close references list without jumping' })
+
           preview() -- preview the first entry right away
         end,
       })
