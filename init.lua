@@ -1219,13 +1219,90 @@ require('nvim-treesitter').install(vim.list_extend({ 'markdown_inline' }, ts_fil
 
 vim.filetype.add({ extension = { wgsl = "wgsl" } })
 
+-- Header-preserving folds: a treesitter fold starts on the line AFTER its header,
+-- so a closed def/class still shows its own first line and folds everything below.
+-- Built from the folds query's node RANGES, not by shifting vim.treesitter.foldexpr's
+-- level strings: those merge every fold opening on one line, so a multi-line
+-- signature (`def f(` -- the parameters are a fold of their own) shifted into a fold
+-- over the parameters alone, leaving the body open. One fold per header line, the
+-- outermost, is what makes the header's fold the whole definition.
+local header_folds = {} -- bufnr -> { tick = changedtick, levels = { [lnum] = expr } }
+
+local function compute_header_folds(buf)
+  local levels = {}
+  local parser = vim.treesitter.get_parser(buf, nil, { error = false })
+  if not parser then return levels end
+  parser:parse(true)
+  local last = {} -- header row -> last row of the outermost fold opening on it
+  parser:for_each_tree(function(tree, ltree)
+    local query = vim.treesitter.query.get(ltree:lang(), 'folds')
+    if not query then return end
+    for id, node in query:iter_captures(tree:root(), buf) do
+      if query.captures[id] == 'fold' then
+        local srow, _, erow, ecol = node:range()
+        if ecol == 0 then erow = erow - 1 end -- node ends at the start of the next line
+        if erow > srow and erow > (last[srow] or -1) then last[srow] = erow end
+      end
+    end
+  end)
+  -- 0-based header row s, fold end row e -> 1-based fold over lines s+2 .. e+1.
+  local delta, starts = {}, {}
+  for srow, erow in pairs(last) do
+    delta[srow + 2] = (delta[srow + 2] or 0) + 1
+    delta[erow + 2] = (delta[erow + 2] or 0) - 1
+    starts[srow + 2] = true
+  end
+  local level = 0
+  for lnum = 1, vim.api.nvim_buf_line_count(buf) do
+    level = level + (delta[lnum] or 0)
+    levels[lnum] = (starts[lnum] and '>' or '') .. level
+  end
+  return levels
+end
+
+function _G.header_foldexpr(lnum)
+  local buf = vim.api.nvim_get_current_buf() -- foldexpr runs with the target window current
+  local tick = vim.b[buf].changedtick
+  local cache = header_folds[buf]
+  if not cache or cache.tick ~= tick then
+    cache = { tick = tick, levels = compute_header_folds(buf) }
+    header_folds[buf] = cache
+  end
+  return cache.levels[lnum or vim.v.lnum] or '0'
+end
+
+-- Vim re-evaluates a foldexpr only around the edited lines, but one edit can move a
+-- fold's range far away (closing a paren, deleting a def), so refresh the whole window.
+vim.api.nvim_create_autocmd({ 'TextChanged', 'InsertLeave' }, {
+  callback = function()
+    if vim.wo.foldexpr == 'v:lua.header_foldexpr()' then vim.cmd('silent! foldupdate') end
+  end,
+})
+vim.api.nvim_create_autocmd('BufWipeout', {
+  callback = function(args) header_folds[args.buf] = nil end,
+})
+
+-- zf toggles the fold of the definition under the cursor. The header sits OUTSIDE
+-- its own fold, so on a header line the fold to act on is the one opening on the
+-- next line; anywhere else it is the innermost fold under the cursor. zf is free
+-- here: as the create-fold operator it only works with manual/marker foldmethod,
+-- which is why it is mapped buffer-local, leaving the real zf in other buffers.
+local function toggle_header_fold()
+  local l = vim.fn.line('.')
+  if vim.fn.foldlevel(l + 1) > vim.fn.foldlevel(l) then l = l + 1 end
+  if vim.fn.foldlevel(l) == 0 then return end
+  vim.cmd(l .. (vim.fn.foldclosed(l) == -1 and 'foldclose' or 'foldopen'))
+end
+
 vim.api.nvim_create_autocmd('FileType', {
   pattern = ts_filetypes,
-  callback = function()
+  callback = function(args)
     vim.treesitter.start()                                            -- highlighting
     vim.wo.foldmethod = 'expr'
-    vim.wo.foldexpr = 'v:lua.vim.treesitter.foldexpr()'               -- folds
+    vim.wo.foldexpr = 'v:lua.header_foldexpr()'                       -- folds
     vim.bo.indentexpr = "v:lua.require'nvim-treesitter'.indentexpr()" -- indentation
+    vim.keymap.set('n', 'zf', toggle_header_fold,
+      { buffer = args.buf, desc = 'Toggle definition fold (keeps header)' })
   end,
 })
 
