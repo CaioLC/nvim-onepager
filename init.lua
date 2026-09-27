@@ -43,7 +43,8 @@
 --
 -- Python provider + JupyterLab (for neopyter — cells run in a browser tab)
 --   conda env 'nvim' at %USERPROFILE%\.conda\envs\nvim
---     packages: pynvim, jupyterlab, neopyter,
+--     packages: listed once in `nvim_env_packages` (below); a startup warning
+--               prints the pip command for any that are missing. Notes on two:
 --               lckr_jupyterlab_variableinspector (live variable/dataframe panel),
 --               itables (sortable/filterable dataframe tables; enable per notebook:
 --               `from itables import init_notebook_mode; init_notebook_mode()`)
@@ -58,6 +59,58 @@
 -- is portable across machines as long as the env lives in that conventional spot.
 -- Doubles as the interpreter <leader>jl launches JupyterLab from.
 vim.g.python3_host_prog = vim.fn.expand('$USERPROFILE') .. '/.conda/envs/nvim/python.exe'
+local nvim_env = vim.fn.fnamemodify(vim.g.python3_host_prog, ':h')
+
+-- PYTHON DEPENDENCIES of the 'nvim' env: the one list of what it must hold. The
+-- startup check below and <leader>jl's pre-launch check both read it, so adding a
+-- package here is the whole job.
+local nvim_env_packages = {
+  'pynvim',                                        -- python provider
+  'jupyterlab', 'neopyter',                        -- notebooks (<leader>jl)
+  'lckr_jupyterlab_variableinspector', 'itables',  -- notebook extras
+  'mdformat', 'mdformat-gfm',                      -- markdown gq (gfm: tables)
+}
+
+-- Which of pkgs the env lacks, read off site-packages' .dist-info dirs in one
+-- directory scan (no python subprocess, same spirit as the ucrt header glob).
+-- Those dirs are named '<name>-<version>.dist-info' with the name's '-' already
+-- normalised to '_', so the name is everything before the first '-'.
+local function nvim_env_missing(pkgs)
+  local have, missing = {}, {}
+  local site = nvim_env .. '/Lib/site-packages'
+  if vim.fn.isdirectory(site) == 1 then
+    for name in vim.fs.dir(site) do
+      local stem = name:match('^([^-]+)%-.*%.dist%-info$')
+      if stem then have[stem:lower()] = true end
+    end
+  end
+  for _, pkg in ipairs(pkgs) do
+    if not have[pkg:lower():gsub('-', '_')] then missing[#missing + 1] = pkg end
+  end
+  return missing
+end
+
+-- One paste-able PowerShell command that makes the env whole, or nil if it is.
+-- Warn only, like the toolchain check below: a pip run at startup would block
+-- (or, async, race the plugins that need it).
+local function nvim_env_fix()
+  if vim.fn.executable(vim.g.python3_host_prog) == 0 then
+    return 'conda create -y --prefix "' .. nvim_env .. '" python; & "'
+      .. vim.g.python3_host_prog .. '" -m pip install ' .. table.concat(nvim_env_packages, ' ')
+  end
+  local missing = nvim_env_missing(nvim_env_packages)
+  if #missing > 0 then
+    return '& "' .. vim.g.python3_host_prog .. '" -m pip install ' .. table.concat(missing, ' ')
+  end
+end
+
+local env_fix = nvim_env_fix()
+if env_fix then
+  vim.schedule(function()
+    vim.notify("'nvim' python env is incomplete (" .. nvim_env .. '). Paste in PowerShell:\n\n'
+      .. env_fix, vim.log.levels.WARN)
+  end)
+end
 
 -- Disable unused language providers to silence checkhealth warnings.
 vim.g.loaded_perl_provider = 0
@@ -72,6 +125,13 @@ vim.g.loaded_netrwPlugin = 1
 -- Use clang as the C compiler for tree-sitter parser builds (avoids needing MSVC cl.exe).
 -- Single-binary invocation sidesteps the CC-splitting issue Windows had with `zig cc`.
 vim.env.CC = 'clang'
+
+-- Parse tree-sitter synchronously. 0.12's highlighter parses in 3ms slices and
+-- yields between them; a plugin that reads the tree in that gap (render-markdown's
+-- debounced redraw, mid-edit) gets nodes still ranged over the pre-edit buffer and
+-- dies in get_node_text with "Index out of bounds" (neovim#38303). Buffers here
+-- are small enough that a blocking parse costs nothing visible.
+vim.g._ts_force_sync_parsing = true
 
 -- CHECK PARSER BUILD TOOLCHAIN (warn only). Without clang ($CC), the MSVC/Windows
 -- SDK headers clang targets, and the tree-sitter CLI, no parser compiles. We only
@@ -1167,9 +1227,60 @@ local function md_follow(target)
   md_goto_heading(anchor)
 end
 
+-- MARKDOWN FORMATTING: gq runs mdformat (python, from the 'nvim' env) instead of
+-- nvim's line reflow, which knows nothing of markdown -- it wraps table rows and
+-- fenced code like prose. mdformat wraps paragraphs at 'textwidth' (80 when
+-- unset) and leaves tables, code and long code spans whole. It also normalises
+-- the rest of the markup (list markers, table alignment); --number keeps ordered
+-- lists counting 1. 2. 3. rather than all-1s.
+-- gq{motion} always formats the WHOLE buffer: fed a fragment, mdformat misreads
+-- it (a lone nested bullet, indented 4, parses as a code block). The result goes
+-- in as diff hunks, not a full replace, so the cursor, marks and folds outside
+-- the reflowed paragraphs stay put, and it is one undo step either way.
+local mdformat = nvim_env .. '/Scripts/mdformat.exe'
+
+function _G.md_formatexpr()
+  -- Insert-mode auto-wrap also calls formatexpr; hand that back to nvim (a no-op
+  -- here, since 'formatoptions' auto-wrap needs 'textwidth' and we never set it).
+  if vim.fn.mode():find('^[iR]') then return 1 end
+  if vim.fn.executable(mdformat) == 0 then
+    vim.notify('markdown: mdformat not installed. Fix:\n\n' .. (nvim_env_fix() or ''),
+      vim.log.levels.WARN)
+    return 0
+  end
+  local buf = vim.api.nvim_get_current_buf()
+  local tw = vim.bo[buf].textwidth > 0 and vim.bo[buf].textwidth or 80
+  local old = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  -- PYTHONUTF8: without it python on Windows reads stdin in the ANSI codepage and
+  -- mangles every non-ASCII char (em dashes, checkmarks) on the way through.
+  local res = vim.system({ mdformat, '--wrap', tostring(tw), '--number', '-' }, {
+    stdin = table.concat(old, '\n') .. '\n',
+    env = { PYTHONUTF8 = '1' },
+    text = true,
+  }):wait()
+  if res.code ~= 0 then
+    vim.notify('mdformat failed:\n' .. (res.stderr or ''), vim.log.levels.ERROR)
+    return 0
+  end
+  local new = vim.split(((res.stdout or ''):gsub('\r', '')), '\n', { plain = true })
+  if new[#new] == '' then table.remove(new) end
+  local hunks = vim.text.diff(table.concat(old, '\n') .. '\n', table.concat(new, '\n') .. '\n',
+    { result_type = 'indices' })
+  -- Apply bottom-up so earlier hunks' line numbers stay valid. A pure insertion
+  -- (count_a == 0) is reported as "after line start_a", hence no -1 there.
+  for i = #hunks, 1, -1 do
+    local sa, ca, sb, cb = unpack(hunks[i])
+    local first = ca == 0 and sa or sa - 1
+    vim.api.nvim_buf_set_lines(buf, first, first + ca, false,
+      vim.list_slice(new, sb, sb + cb - 1))
+  end
+  return 0
+end
+
 vim.api.nvim_create_autocmd('FileType', {
   pattern = 'markdown',
   callback = function(args)
+    vim.bo[args.buf].formatexpr = 'v:lua.md_formatexpr()'
     vim.opt_local.suffixesadd:prepend('.md') -- gf on a bare path guesses .md too
     vim.keymap.set('n', 'gd', function()
       local target = md_link_target()
@@ -1228,6 +1339,36 @@ vim.filetype.add({ extension = { wgsl = "wgsl" } })
 -- outermost, is what makes the header's fold the whole definition.
 local header_folds = {} -- bufnr -> { tick = changedtick, levels = { [lnum] = expr } }
 
+-- Branch clauses fold one by one, not as their whole statement: the folds queries
+-- capture if_statement / try_statement as ONE node, so the whole chain folded from
+-- the `if` and an `elif`/`else`/`except`/`finally` line had no fold of its own. The
+-- head fold is the statement's own block (`consequence` for if, `body` for try, for,
+-- while); each clause is its own fold, headed by its own line.
+local branch_clauses = {
+  elif_clause = true, else_clause = true,                               -- python if/for/while
+  except_clause = true, except_group_clause = true, finally_clause = true, -- python try
+  elseif_statement = true, else_statement = true,                       -- lua if
+}
+
+local function fold_rows(node)
+  local srow, _, erow, ecol = node:range()
+  if ecol == 0 then erow = erow - 1 end -- node ends at the start of the next line
+  return srow, erow
+end
+
+local function fold_ranges(node)
+  local clauses = {}
+  for child in node:iter_children() do
+    if branch_clauses[child:type()] then table.insert(clauses, child) end
+  end
+  if #clauses == 0 then return { { fold_rows(node) } } end
+  local ranges = {}
+  local head = node:field('consequence')[1] or node:field('body')[1]
+  if head then table.insert(ranges, { node:start(), select(2, fold_rows(head)) }) end
+  for _, clause in ipairs(clauses) do table.insert(ranges, { fold_rows(clause) }) end
+  return ranges
+end
+
 local function compute_header_folds(buf)
   local levels = {}
   local parser = vim.treesitter.get_parser(buf, nil, { error = false })
@@ -1239,9 +1380,10 @@ local function compute_header_folds(buf)
     if not query then return end
     for id, node in query:iter_captures(tree:root(), buf) do
       if query.captures[id] == 'fold' then
-        local srow, _, erow, ecol = node:range()
-        if ecol == 0 then erow = erow - 1 end -- node ends at the start of the next line
-        if erow > srow and erow > (last[srow] or -1) then last[srow] = erow end
+        for _, r in ipairs(fold_ranges(node)) do
+          local srow, erow = r[1], r[2]
+          if erow > srow and erow > (last[srow] or -1) then last[srow] = erow end
+        end
       end
     end
   end)
@@ -1370,31 +1512,15 @@ end
 -- running (it hosts the RPC server the JupyterLab extension connects to).
 local function jupyter_lab_start()
   local py = vim.g.python3_host_prog
-  if vim.fn.executable(py) == 0 then
-    vim.notify("JupyterLab env not found: " .. py .. "\nCreate it: conda create --prefix "
-      .. "%USERPROFILE%\\.conda\\envs\\nvim python pynvim jupyterlab, then pip install "
-      .. "neopyter lckr_jupyterlab_variableinspector itables", vim.log.levels.ERROR)
-    return
-  end
   -- The interpreter existing is not enough: the *browser* half has to live in that
   -- env too. With jupyterlab/neopyter missing, `python -m jupyterlab` exits
   -- instantly into the log pane, which reads as "it launched and nothing happened";
   -- cells then silently never run, because nvim's RPC server has nothing connecting
-  -- to it. Probe site-packages directly (no subprocess, same spirit as the ucrt
-  -- header glob) so the real cause is named up front. Only these two are
-  -- load-bearing -- the inspector and itables merely render extras.
-  local site = vim.fn.fnamemodify(py, ':h') .. '/Lib/site-packages/'
-  local missing = {}
-  for _, mod in ipairs({ 'jupyterlab', 'neopyter' }) do
-    if vim.fn.isdirectory(site .. mod) == 0 then
-      table.insert(missing, mod)
-    end
-  end
-  if #missing > 0 then
-    vim.notify('JupyterLab env is missing: ' .. table.concat(missing, ', ')
-      .. '\nCells cannot run until it is installed. Fix:\n'
-      .. '& "' .. py .. '" -m pip install jupyterlab neopyter '
-      .. 'lckr_jupyterlab_variableinspector itables', vim.log.levels.ERROR)
+  -- to it. So name the cause up front. Only these two block the launch -- the
+  -- inspector and itables merely render extras (the startup warning covers them).
+  if vim.fn.executable(py) == 0 or #nvim_env_missing({ 'jupyterlab', 'neopyter' }) > 0 then
+    vim.notify('JupyterLab env is incomplete -- cells cannot run until it is. Fix:\n\n'
+      .. nvim_env_fix(), vim.log.levels.ERROR)
     return
   end
   local cwd = vim.fn.getcwd()

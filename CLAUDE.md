@@ -26,7 +26,7 @@ These are documented at the top of `init.lua`. They must be on PATH for the conf
 - `clang` (LLVM) — used as the C compiler for tree-sitter parser builds via `vim.env.CC = 'clang'` (init.lua:74). Avoids needing MSVC's `cl.exe`. Install via `winget install LLVM.LLVM`; the startup warning pairs the install with a User-scope PATH append, because the LLVM package does not add itself to PATH.
 - MSVC Build Tools (VCTools workload) — supplies the Windows SDK headers clang targets. Probed by globbing for a real `ucrt/stdio.h`, not by running vswhere.
 - `zls` — Zig LSP server, also manual install + PATH
-- `conda env 'nvim'` with `pynvim`, `jupyterlab`, `neopyter`, `lckr_jupyterlab_variableinspector`, `itables` — hosts JupyterLab for the neopyter notebook workflow (`<leader>jl` launches it). Created at `%USERPROFILE%\.conda\envs\nvim` (via `conda create --prefix ...`). init.lua resolves `$USERPROFILE` at runtime, so this is portable across machines as long as the env lives in that conventional spot.
+- `conda env 'nvim'` — hosts JupyterLab for the neopyter notebook workflow (`<leader>jl` launches it) and `mdformat` (+ `mdformat-gfm`), which markdown buffers use as `gq`. The packages are listed **once**, in `nvim_env_packages` near the top of init.lua; a startup check reads site-packages' `.dist-info` dirs (no subprocess) and warns with a paste-able `pip install` for whatever is missing. Warn-only, like the toolchain check — add a package to that list, not to a message string. Created at `%USERPROFILE%\.conda\envs\nvim` (via `conda create --prefix ...`). init.lua resolves `$USERPROFILE` at runtime, so this is portable across machines as long as the env lives in that conventional spot.
 
 ## Non-obvious architectural choices
 
